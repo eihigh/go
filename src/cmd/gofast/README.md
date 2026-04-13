@@ -36,3 +36,31 @@ gofast clear
 
 - キャッシュはユーザーキャッシュ配下（`<user cache dir>/gofast`）に保存されます。
 - `gofast build` は安全な再利用条件を満たさない場合、自動的に通常の `go build` にフォールバックします。
+
+## 内部動作（バイナリ構造をどう扱うか）
+
+`gofast` はバイナリそのものを再利用しますが、無条件にコピーせず、メタデータと実体の整合性を段階的に検証します。
+
+1. **通常ビルド時に保存する情報**
+   - `go build` 実行後、出力バイナリを `entries/<entryID>/binary` に保存
+   - 同時に `entries/<entryID>/meta.json` を保存し、少なくとも以下を記録
+     - `binary_size`（バイト数）
+     - `build_id`（`go tool buildid` で取得）
+     - `env/input/stdlib/watch` の各キー
+     - `goos` / `goarch` / `cgo_enabled` / `build_args`
+
+2. **キャッシュ復元時の検証**
+   - `meta.json` と `binary` が両方存在することを確認
+   - `binary_size` と実ファイルサイズが一致するかを確認
+   - 取得できる場合は `go tool buildid` の値と `meta.json` の `build_id` を照合
+   - いずれか不一致ならそのエントリは無効とし、キャッシュ復元を中止して `go build` にフォールバック
+
+3. **復元の実処理**
+   - 検証を通過した場合のみ `binary` を出力先へコピー
+   - コピーは一時ファイル経由で行い、最後に rename して反映（中途半端な出力を避ける）
+
+4. **どのエントリを使うかの判断**
+   - 直前状態（`state/*.json`）の `env/input/stdlib/watch` キーを比較して候補を選定
+   - 一致条件が崩れた場合は復元せず、通常ビルド結果で新しいエントリを作り直す
+
+この設計により、`gofast` は「キー一致」だけでなく「バイナリ実体の整合性（サイズ・BuildID）」まで確認してから再利用します。
