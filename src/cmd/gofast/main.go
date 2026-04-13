@@ -7,10 +7,10 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -63,33 +63,75 @@ Commands:
 }
 
 func runBuildCommand(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("build", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	explain := fs.Bool("explain-cache", false, "print cache decision details")
-	if err := fs.Parse(args); err != nil {
+	explain, goArgs, err := parseBuildArgs(args)
+	if err != nil {
 		return err
 	}
 	return runBuild(ctx, buildOptions{
-		GoArgs:  fs.Args(),
-		Explain: *explain,
+		GoArgs:  goArgs,
+		Explain: explain,
 	})
 }
 
 func runWatchCommand(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("watch", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	explain := fs.Bool("explain-cache", false, "print cache decision details")
-	debounce := fs.Duration("debounce", 400*time.Millisecond, "event debounce interval")
-	if err := fs.Parse(args); err != nil {
+	explain, debounce, goArgs, err := parseWatchArgs(args)
+	if err != nil {
 		return err
 	}
 	return runWatch(ctx, watchOptions{
 		Build: buildOptions{
-			GoArgs:  fs.Args(),
-			Explain: *explain,
+			GoArgs:  goArgs,
+			Explain: explain,
 		},
-		Debounce: *debounce,
+		Debounce: debounce,
 	})
+}
+
+func parseBuildArgs(args []string) (explain bool, goArgs []string, err error) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "--":
+			return explain, append(goArgs, args[i+1:]...), nil
+		case "--explain-cache":
+			explain = true
+		default:
+			goArgs = append(goArgs, a)
+		}
+	}
+	return explain, goArgs, nil
+}
+
+func parseWatchArgs(args []string) (explain bool, debounce time.Duration, goArgs []string, err error) {
+	debounce = 400 * time.Millisecond
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return explain, debounce, append(goArgs, args[i+1:]...), nil
+		case a == "--explain-cache":
+			explain = true
+		case a == "--debounce":
+			if i+1 >= len(args) {
+				return false, 0, nil, errors.New("watch: --debounce requires a value")
+			}
+			d, err := time.ParseDuration(args[i+1])
+			if err != nil {
+				return false, 0, nil, fmt.Errorf("watch: invalid --debounce value: %w", err)
+			}
+			debounce = d
+			i++
+		case strings.HasPrefix(a, "--debounce="):
+			d, err := time.ParseDuration(strings.TrimPrefix(a, "--debounce="))
+			if err != nil {
+				return false, 0, nil, fmt.Errorf("watch: invalid --debounce value: %w", err)
+			}
+			debounce = d
+		default:
+			goArgs = append(goArgs, a)
+		}
+	}
+	return explain, debounce, goArgs, nil
 }
 
 func fail(err error) {
