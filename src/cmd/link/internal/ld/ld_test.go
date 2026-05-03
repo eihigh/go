@@ -112,38 +112,30 @@ func TestDebugLinkServer(t *testing.T) {
 
 	dir := t.TempDir()
 	stateFile := filepath.Join(dir, "linkserver.json")
-	source := `package main
-
-import "fmt"
-
-func main() { fmt.Println("hello") }
-`
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/linkserver\n\ngo 1.24\n"), 0666); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0666); err != nil {
-		t.Fatal(err)
-	}
-
+	exe := filepath.Join(dir, "hello.exe")
 	goTool := testenv.GoToolPath(t)
-	build := func() {
-		cmd := testenv.Command(t, goTool, "build", "-debug-linkserver="+stateFile, "-o", filepath.Join(dir, "hello.exe"), ".")
-		cmd.Dir = dir
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("go build failed: %v\n%s", err, out)
-		}
-	}
-
-	build()
+	writeDebugLinkServerModule(t, dir)
+	t.Cleanup(func() {
+		cleanupDebugLinkServer(t, stateFile)
+	})
+	writeDebugLinkServerProgram(t, dir, "hello")
+	buildDebugLinkServerProgram(t, goTool, dir, stateFile, exe)
 	state1 := readLinkServiceStateForTest(t, stateFile)
-	build()
-	state2 := readLinkServiceStateForTest(t, stateFile)
 	if state1.Addr == "" || state1.PID == 0 {
 		t.Fatalf("unexpected link server state after first build: %+v", state1)
 	}
+	if got, want := runDebugLinkServerProgram(t, exe), "hello\n"; got != want {
+		t.Fatalf("unexpected program output after first build: got %q want %q", got, want)
+	}
+
+	writeDebugLinkServerProgram(t, dir, "hello again")
+	buildDebugLinkServerProgram(t, goTool, dir, stateFile, exe)
+	state2 := readLinkServiceStateForTest(t, stateFile)
 	if state1 != state2 {
 		t.Fatalf("link server state changed across rebuilds: before=%+v after=%+v", state1, state2)
+	}
+	if got, want := runDebugLinkServerProgram(t, exe), "hello again\n"; got != want {
+		t.Fatalf("unexpected program output after rebuild: got %q want %q", got, want)
 	}
 
 	resp, err := http.Get(state1.Addr + "/healthz")
@@ -151,9 +143,45 @@ func main() { fmt.Println("hello") }
 		t.Fatalf("link server health check failed: %v", err)
 	}
 	resp.Body.Close()
+}
 
-	if proc, err := os.FindProcess(state1.PID); err == nil {
-		_ = proc.Kill()
+func BenchmarkDebugLinkServerRebuild(b *testing.B) {
+	testenv.MustHaveGoBuild(b)
+	testenv.MustHaveExec(b)
+
+	dir := b.TempDir()
+	stateFile := filepath.Join(dir, "linkserver.json")
+	exe := filepath.Join(dir, "hello.exe")
+	goTool := testenv.GoToolPath(b)
+	writeDebugLinkServerModule(b, dir)
+	b.Cleanup(func() {
+		cleanupDebugLinkServer(b, stateFile)
+	})
+
+	message := "hello 0"
+	writeDebugLinkServerProgram(b, dir, message)
+	buildDebugLinkServerProgram(b, goTool, dir, stateFile, exe)
+	state1 := readLinkServiceStateForTest(b, stateFile)
+	if state1.Addr == "" || state1.PID == 0 {
+		b.Fatalf("unexpected link server state after initial build: %+v", state1)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		message = fmt.Sprintf("hello %d", i+1)
+		writeDebugLinkServerProgram(b, dir, message)
+		b.StartTimer()
+		buildDebugLinkServerProgram(b, goTool, dir, stateFile, exe)
+	}
+	b.StopTimer()
+
+	state2 := readLinkServiceStateForTest(b, stateFile)
+	if state1 != state2 {
+		b.Fatalf("link server state changed across rebuilds: before=%+v after=%+v", state1, state2)
+	}
+	if got, want := runDebugLinkServerProgram(b, exe), message+"\n"; got != want {
+		b.Fatalf("unexpected program output after benchmark rebuilds: got %q want %q", got, want)
 	}
 }
 
@@ -173,6 +201,56 @@ func readLinkServiceStateForTest(t *testing.T, file string) debugLinkServerState
 		t.Fatal(err)
 	}
 	return state
+}
+
+func writeDebugLinkServerModule(tb testing.TB, dir string) {
+	tb.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/linkserver\n\ngo 1.24\n"), 0666); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+func writeDebugLinkServerProgram(tb testing.TB, dir, message string) {
+	tb.Helper()
+	source := fmt.Sprintf("package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(%q) }\n", message)
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0666); err != nil {
+		tb.Fatal(err)
+	}
+}
+
+func buildDebugLinkServerProgram(tb testing.TB, goTool, dir, stateFile, exe string) {
+	tb.Helper()
+	cmd := testenv.Command(tb, goTool, "build", "-debug-linkserver="+stateFile, "-o", exe, ".")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		tb.Fatalf("go build failed: %v\n%s", err, out)
+	}
+}
+
+func runDebugLinkServerProgram(tb testing.TB, exe string) string {
+	tb.Helper()
+	cmd := testenv.Command(tb, exe)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		tb.Fatalf("running %s failed: %v\n%s", exe, err, out)
+	}
+	return string(out)
+}
+
+func cleanupDebugLinkServer(tb testing.TB, stateFile string) {
+	tb.Helper()
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return
+	}
+	var state debugLinkServerState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return
+	}
+	if proc, err := os.FindProcess(state.PID); err == nil {
+		_ = proc.Kill()
+	}
 }
 
 const carchiveSrcText = `
