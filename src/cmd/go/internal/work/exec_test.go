@@ -92,12 +92,13 @@ func TestEncodeDecodeFuzz(t *testing.T) {
 func TestCollectLinkInputs(t *testing.T) {
 	t.Parallel()
 
+	nop := &Action{Mode: "nop"}
 	std := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "fmt", Name: "fmt", Goroot: true, Standard: true}}}
 	main := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "cmd/go", Name: "main", Goroot: true, Standard: true}}}
 	toolDep := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "cmd/internal/objabi", Name: "objabi", Goroot: true, Standard: true}}}
 	mod := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "example.com/mod/pkg", Name: "pkg"}}}
 
-	inputs := collectLinkInputs([]*Action{{Mode: "nop"}, std, main, toolDep, mod})
+	inputs := collectLinkInputs([]*Action{nop, std, main, toolDep, mod})
 
 	if got, want := inputs.all, []*Action{std, main, toolDep, mod}; !slices.Equal(got, want) {
 		t.Fatalf("all inputs = %#v, want %#v", got, want)
@@ -107,6 +108,9 @@ func TestCollectLinkInputs(t *testing.T) {
 	}
 	if got, want := inputs.overlay, []*Action{main, toolDep, mod}; !slices.Equal(got, want) {
 		t.Fatalf("overlay inputs = %#v, want %#v", got, want)
+	}
+	if slices.Contains(inputs.all, nop) || slices.Contains(inputs.baseline, nop) || slices.Contains(inputs.overlay, nop) {
+		t.Fatalf("nop action unexpectedly included in collected link inputs: %#v", inputs)
 	}
 }
 

@@ -725,6 +725,8 @@ func restoreLinkBaselineSnapshotCache(b *Builder, root *Action, id cache.ActionI
 	if err != nil {
 		return
 	}
+	// Snapshot restore is best-effort: cache misses or copy failures should not
+	// block linking, because the linker can regenerate the snapshot locally.
 	if err := b.Shell(root).CopyFile(dst, file, 0666, true); err != nil && cfg.BuildX {
 		b.Shell(root).ShowCmd("", "warning: unable to restore linker baseline snapshot from %s: %v # internal", file, err)
 	}
