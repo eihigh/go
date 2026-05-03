@@ -56,7 +56,7 @@ type baselineLibrarySnapshot struct {
 
 type baselineObjectSnapshot struct {
 	displayName string
-	sourceFile  string
+	libraryFile string
 	data        []byte
 	readonly    bool
 }
@@ -205,14 +205,14 @@ func captureBaselineLibrary(lib *sym.Library) (*baselineLibrarySnapshot, error) 
 	return snapshot, nil
 }
 
-func captureBaselineObject(f *bio.Reader, displayName, sourceFile string, size int64) (baselineObjectSnapshot, error) {
+func captureBaselineObject(f *bio.Reader, displayName, libraryFile string, size int64) (baselineObjectSnapshot, error) {
 	data, readonly, err := f.Slice(uint64(size))
 	if err != nil {
 		return baselineObjectSnapshot{}, err
 	}
 	return baselineObjectSnapshot{
 		displayName: displayName,
-		sourceFile:  sourceFile,
+		libraryFile: libraryFile,
 		data:        data,
 		readonly:    readonly,
 	}, nil
@@ -368,7 +368,7 @@ type baselineLibrarySnapshotDisk struct {
 
 type baselineObjectSnapshotDisk struct {
 	DisplayName string
-	SourceFile  string
+	LibraryFile string
 	Data        []byte
 	Readonly    bool
 }
@@ -379,13 +379,13 @@ func loadBaselineSnapshotFile(path string) (*BaselineSnapshot, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("open baseline snapshot %s: %w", path, err)
 	}
 	defer f.Close()
 
 	var disk baselineSnapshotDisk
 	if err := gob.NewDecoder(f).Decode(&disk); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode baseline snapshot %s: %w", path, err)
 	}
 	snapshot := &BaselineSnapshot{
 		key:       disk.Key,
@@ -401,7 +401,7 @@ func loadBaselineSnapshotFile(path string) (*BaselineSnapshot, error) {
 		for i, obj := range lib.Objects {
 			ls.objects[i] = baselineObjectSnapshot{
 				displayName: obj.DisplayName,
-				sourceFile:  obj.SourceFile,
+				libraryFile: obj.LibraryFile,
 				data:        obj.Data,
 				readonly:    obj.Readonly,
 			}
@@ -433,7 +433,7 @@ func saveBaselineSnapshotFile(path string, snapshot *BaselineSnapshot) error {
 		for i, obj := range lib.objects {
 			ls.Objects[i] = baselineObjectSnapshotDisk{
 				DisplayName: obj.displayName,
-				SourceFile:  obj.sourceFile,
+				LibraryFile: obj.libraryFile,
 				Data:        obj.data,
 				Readonly:    obj.readonly,
 			}
@@ -448,7 +448,7 @@ func saveBaselineSnapshotFile(path string, snapshot *BaselineSnapshot) error {
 	defer os.Remove(tmp.Name())
 	if err := gob.NewEncoder(tmp).Encode(&disk); err != nil {
 		tmp.Close()
-		return err
+		return fmt.Errorf("encode baseline snapshot %s: %w", path, err)
 	}
 	if err := tmp.Close(); err != nil {
 		return err

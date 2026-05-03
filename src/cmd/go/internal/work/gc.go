@@ -25,6 +25,7 @@ import (
 	"cmd/go/internal/str"
 	"cmd/internal/quoted"
 	"crypto/sha1"
+	"crypto/sha256"
 )
 
 // Tests can override this by setting $TESTGO_TOOLCHAIN_VERSION.
@@ -660,7 +661,7 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 }
 
 func linkBaselineSnapshotPath(b *Builder, root *Action, ldflags []string) string {
-	h := sha1.New()
+	h := sha256.New()
 	fmt.Fprintf(h, "goroot=%s\n", cfg.GOROOT)
 	fmt.Fprintf(h, "goos=%s\n", cfg.Goos)
 	fmt.Fprintf(h, "goarch=%s\n", cfg.Goarch)
