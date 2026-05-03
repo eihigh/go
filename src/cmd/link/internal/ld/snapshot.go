@@ -288,6 +288,9 @@ func parseGoObjectHeader(data []byte) (line string, import1 int, err error) {
 	if !strings.HasPrefix(line, "go object ") {
 		return "", 0, errSnapshotUnsupported
 	}
+	if i+1 >= len(data) {
+		return "", 0, fmt.Errorf("truncated object file")
+	}
 
 	markers := 0
 	c1, c2, c3 := byte('\n'), data[i+1], byte(0)
