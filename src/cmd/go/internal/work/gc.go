@@ -25,7 +25,6 @@ import (
 	"cmd/go/internal/str"
 	"cmd/internal/quoted"
 	"crypto/sha1"
-	"crypto/sha256"
 )
 
 // Tests can override this by setting $TESTGO_TOOLCHAIN_VERSION.
@@ -632,8 +631,6 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	if err != nil {
 		return err
 	}
-	baselineSnapshotPath := linkBaselineSnapshotPath(b, root, ldflags)
-	ldflags = append(ldflags, "-baselinesnapshot="+baselineSnapshotPath)
 
 	// On OS X when using external linking to build a shared library,
 	// the argument passed here to -o ends up recorded in the final
@@ -659,23 +656,6 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 		env = append(env, "GOROOT="+cfg.GOROOT)
 	}
 	return b.Shell(root).run(dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags, mainpkg)
-}
-
-func linkBaselineSnapshotPath(b *Builder, root *Action, ldflags []string) string {
-	h := sha256.New()
-	fmt.Fprintf(h, "goroot=%s\n", cfg.GOROOT)
-	fmt.Fprintf(h, "goos=%s\n", cfg.Goos)
-	fmt.Fprintf(h, "goarch=%s\n", cfg.Goarch)
-	fmt.Fprintf(h, "goexperiment=%s\n", buildcfg.Experiment.String())
-	fmt.Fprintf(h, "buildmode=%s\n", ldBuildmode)
-	fmt.Fprintf(h, "trimpath=%t\n", cfg.BuildTrimpath)
-	for _, flag := range ldflags {
-		fmt.Fprintf(h, "ldflag=%s\n", flag)
-	}
-	if root.Package != nil {
-		fmt.Fprintf(h, "cxx=%t\n", len(root.Package.CXXFiles) > 0 || len(root.Package.SwigCXXFiles) > 0)
-	}
-	return filepath.Join(b.WorkDir, fmt.Sprintf("linker-baseline-snapshot-%x.gob", h.Sum(nil)))
 }
 
 func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, targetPath, importcfg string, allactions []*Action) error {
