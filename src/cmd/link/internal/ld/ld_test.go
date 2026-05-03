@@ -6,7 +6,9 @@ package ld
 
 import (
 	"bytes"
+	"cmd/internal/bio"
 	"cmd/internal/sys"
+	"cmd/link/internal/sym"
 	"debug/pe"
 	"fmt"
 	"internal/testenv"
@@ -14,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -97,6 +100,105 @@ func TestReadImportCfgPackageReuse(t *testing.T) {
 	}
 	if got := ctxt.PackageReuse["example.com/mod"]; got != packageReuseOverlay {
 		t.Fatalf("PackageReuse[example.com/mod] = %v, want %v", got, packageReuseOverlay)
+	}
+}
+
+func TestBaselineSnapshotReuse(t *testing.T) {
+	t.Parallel()
+	testenv.MustHaveGoBuild(t)
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "p.go")
+	archive := filepath.Join(dir, "p.a")
+	if err := os.WriteFile(src, []byte("package p\nconst X = 1\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	cmd := testenv.Command(t, testenv.GoToolPath(t), "tool", "compile", "-p=p", "-pack", "-o", archive, src)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("compile failed: %v\n%s", err, out)
+	}
+
+	lib := &sym.Library{Pkg: "p", File: archive, Objref: "test", Srcref: "test"}
+
+	var opens atomic.Int32
+	oldOpen := openLibraryFile
+	openLibraryFile = func(name string) (*bio.Reader, error) {
+		opens.Add(1)
+		return oldOpen(name)
+	}
+	defer func() { openLibraryFile = oldOpen }()
+
+	ctxt := linknew(sys.ArchAMD64)
+	ctxt.BuildMode = BuildModeExe
+	ctxt.LinkMode = LinkInternal
+	ctxt.PackageReuse = map[string]packageReuseMode{"p": packageReuseBaseline}
+	ctxt.Library = []*sym.Library{lib}
+	snapshot, err := ctxt.CaptureBaselineSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := opens.Load(); got != 1 {
+		t.Fatalf("open count after capture = %d, want 1", got)
+	}
+
+	reused := linknew(sys.ArchAMD64)
+	reused.BuildMode = BuildModeExe
+	reused.LinkMode = LinkInternal
+	reused.PackageReuse = map[string]packageReuseMode{"p": packageReuseBaseline}
+	reused.SetBaselineSnapshot(snapshot)
+	reused.initLoader()
+	reused.loadLibrary(&sym.Library{Pkg: "p", File: archive, Objref: "test", Srcref: "test"})
+
+	if got := opens.Load(); got != 1 {
+		t.Fatalf("open count after snapshot reuse = %d, want 1", got)
+	}
+}
+
+func TestBaselineSnapshotInvalidationFallsBack(t *testing.T) {
+	t.Parallel()
+	testenv.MustHaveGoBuild(t)
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "p.go")
+	archive := filepath.Join(dir, "p.a")
+	if err := os.WriteFile(src, []byte("package p\nconst X = 1\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	cmd := testenv.Command(t, testenv.GoToolPath(t), "tool", "compile", "-p=p", "-pack", "-o", archive, src)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("compile failed: %v\n%s", err, out)
+	}
+
+	lib := &sym.Library{Pkg: "p", File: archive, Objref: "test", Srcref: "test"}
+
+	var opens atomic.Int32
+	oldOpen := openLibraryFile
+	openLibraryFile = func(name string) (*bio.Reader, error) {
+		opens.Add(1)
+		return oldOpen(name)
+	}
+	defer func() { openLibraryFile = oldOpen }()
+
+	ctxt := linknew(sys.ArchAMD64)
+	ctxt.BuildMode = BuildModeExe
+	ctxt.LinkMode = LinkInternal
+	ctxt.PackageReuse = map[string]packageReuseMode{"p": packageReuseBaseline}
+	ctxt.Library = []*sym.Library{lib}
+	snapshot, err := ctxt.CaptureBaselineSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reused := linknew(sys.ArchAMD64)
+	reused.BuildMode = BuildModePIE
+	reused.LinkMode = LinkInternal
+	reused.PackageReuse = map[string]packageReuseMode{"p": packageReuseBaseline}
+	reused.SetBaselineSnapshot(snapshot)
+	reused.initLoader()
+	reused.loadLibrary(&sym.Library{Pkg: "p", File: archive, Objref: "test", Srcref: "test"})
+
+	if got := opens.Load(); got != 2 {
+		t.Fatalf("open count with incompatible snapshot = %d, want 2", got)
 	}
 }
 

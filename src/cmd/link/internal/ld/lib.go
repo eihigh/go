@@ -687,15 +687,22 @@ func (ctxt *Link) preloadPendingLibraries(start int, phase string) int {
 		ctxt.Logf("loadlib[%s]: pending baseline=%d overlay=%d\n", phase, len(pending.baseline), len(pending.overlay))
 	}
 	for ; start < len(ctxt.Library); start++ {
-		lib := ctxt.Library[start]
-		if lib.Shlib == "" {
-			if ctxt.Debugvlog > 1 {
-				ctxt.Logf("autolib: %s (from %s)\n", lib.File, lib.Objref)
-			}
-			loadobjfile(ctxt, lib)
-		}
+		ctxt.loadLibrary(ctxt.Library[start])
 	}
 	return start
+}
+
+func (ctxt *Link) loadLibrary(lib *sym.Library) {
+	if lib == nil || lib.Shlib != "" {
+		return
+	}
+	if ctxt.tryLoadBaseline(lib) {
+		return
+	}
+	if ctxt.Debugvlog > 1 {
+		ctxt.Logf("autolib: %s (from %s)\n", lib.File, lib.Objref)
+	}
+	loadobjfile(ctxt, lib)
 }
 
 type pendingPackageReuse struct {
@@ -738,7 +745,7 @@ func isGOROOTPkgArtifact(name string) bool {
 	}
 	root := filepath.Join(buildcfg.GOROOT, "pkg")
 	rel, err := filepath.Rel(root, name)
-	if err != nil || rel == "." || rel == ".." {
+	if err != nil || rel == ".." {
 		return false
 	}
 	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
@@ -1134,7 +1141,7 @@ func loadobjfile(ctxt *Link, lib *sym.Library) {
 	if ctxt.Debugvlog > 1 {
 		ctxt.Logf("ldobj: %s (%s)\n", lib.File, pkg)
 	}
-	f, err := bio.Open(lib.File)
+	f, err := openLibraryFile(lib.File)
 	if err != nil {
 		Exitf("cannot open file %s: %v", lib.File, err)
 	}

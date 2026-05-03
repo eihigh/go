@@ -99,6 +99,7 @@ type Link struct {
 	PackageFile  map[string]string
 	PackageShlib map[string]string
 	PackageReuse map[string]packageReuseMode
+	baseline     *BaselineSnapshot
 
 	tramps []loader.Sym // trampolines
 
