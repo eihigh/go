@@ -2131,23 +2131,7 @@ func (l *Loader) FuncInfo(i Sym) FuncInfo {
 	return FuncInfo{}
 }
 
-// Preload a package: adds autolib.
-// Does not add defined package or non-packaged symbols to the symbol table.
-// These are done in LoadSyms.
-// Does not read symbol data.
-// Returns the fingerprint of the object.
-func (l *Loader) Preload(localSymVersion int, f *bio.Reader, lib *sym.Library, unit *sym.CompilationUnit, length int64) goobj.FingerprintType {
-	roObject, readonly, err := f.Slice(uint64(length)) // TODO: no need to map blocks that are for tools only (e.g. RefName)
-	if err != nil {
-		log.Fatal("cannot read object file:", err)
-	}
-	r := goobj.NewReaderFromBytes(roObject, readonly)
-	if r == nil {
-		if len(roObject) >= 8 && bytes.Equal(roObject[:8], []byte("\x00go114ld")) {
-			log.Fatalf("found object file %s in old format", f.File().Name())
-		}
-		panic("cannot read object file")
-	}
+func (l *Loader) preloadObjectReader(localSymVersion int, r *goobj.Reader, lib *sym.Library, unit *sym.CompilationUnit) goobj.FingerprintType {
 	pkgprefix := objabi.PathToPrefix(lib.Pkg) + "."
 	ndef := r.NSym()
 	nhashed64def := r.NHashed64def()
@@ -2180,10 +2164,36 @@ func (l *Loader) Preload(localSymVersion int, f *bio.Reader, lib *sym.Library, u
 
 	l.addObj(lib.Pkg, or)
 
-	// The caller expects us consuming all the data
-	f.MustSeek(length, io.SeekCurrent)
-
 	return r.Fingerprint()
+}
+
+// PreloadFromObjectReader attaches a pre-parsed Go object reader to the loader.
+// The supplied reader must remain valid for the lifetime of the link.
+func (l *Loader) PreloadFromObjectReader(localSymVersion int, r *goobj.Reader, lib *sym.Library, unit *sym.CompilationUnit) goobj.FingerprintType {
+	return l.preloadObjectReader(localSymVersion, r, lib, unit)
+}
+
+// Preload a package: adds autolib.
+// Does not add defined package or non-packaged symbols to the symbol table.
+// These are done in LoadSyms.
+// Does not read symbol data.
+// Returns the fingerprint of the object.
+func (l *Loader) Preload(localSymVersion int, f *bio.Reader, lib *sym.Library, unit *sym.CompilationUnit, length int64) goobj.FingerprintType {
+	roObject, readonly, err := f.Slice(uint64(length)) // TODO: no need to map blocks that are for tools only (e.g. RefName)
+	if err != nil {
+		log.Fatal("cannot read object file:", err)
+	}
+	r := goobj.NewReaderFromBytes(roObject, readonly)
+	if r == nil {
+		if len(roObject) >= 8 && bytes.Equal(roObject[:8], []byte("\x00go114ld")) {
+			log.Fatalf("found object file %s in old format", f.File().Name())
+		}
+		panic("cannot read object file")
+	}
+	fingerprint := l.preloadObjectReader(localSymVersion, r, lib, unit)
+	// The caller expects us consuming all the data.
+	f.MustSeek(length, io.SeekCurrent)
+	return fingerprint
 }
 
 // Holds the loader along with temporary states for loading symbols.

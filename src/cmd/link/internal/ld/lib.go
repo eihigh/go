@@ -1081,6 +1081,9 @@ func loadobjfile(ctxt *Link, lib *sym.Library) {
 	if ctxt.Debugvlog > 1 {
 		ctxt.Logf("ldobj: %s (%s)\n", lib.File, pkg)
 	}
+	if maybeLoadArchiveTemplate(ctxt, lib) {
+		return
+	}
 	f, err := bio.Open(lib.File)
 	if err != nil {
 		Exitf("cannot open file %s: %v", lib.File, err)
