@@ -24,14 +24,16 @@ var openLibraryFile = bio.Open
 var errSnapshotUnsupported = errors.New("unsupported baseline snapshot object")
 
 type BaselineSnapshotKey struct {
-	GOROOT        string
-	GOOS          string
-	GOARCH        string
-	GOEXPERIMENT  string
-	BuildMode     BuildMode
-	LinkMode      LinkMode
-	LinkShared    bool
-	HeadType      objabi.HeadType
+	GOROOT       string
+	GOOS         string
+	GOARCH       string
+	GOEXPERIMENT string
+	BuildMode    BuildMode
+	LinkMode     LinkMode
+	LinkShared   bool
+	HeadType     objabi.HeadType
+	// InstallSuffix and the other flag-derived fields must be computed after
+	// linker flag parsing is complete so the key reflects the actual invocation.
 	InstallSuffix string
 	Race          bool
 	Msan          bool
@@ -233,6 +235,7 @@ func (s *baselineLibrarySnapshot) load(ctxt *Link, lib *sym.Library) error {
 	if s == nil {
 		return errors.New("missing snapshot")
 	}
+	// Preserve the same package-main validation timing as loadobjfile.
 	defer func() {
 		if objabi.PathToPrefix(lib.Pkg) == "main" && !lib.Main {
 			Exitf("%s: not package main", lib.File)
@@ -340,7 +343,7 @@ func ldpkgData(ctxt *Link, data []byte, lib *sym.Library, filename string) {
 	if p0 >= 0 {
 		i := strings.IndexByte(text[p0+1:], '\n')
 		if i < 0 {
-			fmt.Fprintf(os.Stderr, "%s: found $$ // cgo but no newline in %s\n", os.Args[0], filename)
+			fmt.Fprintf(os.Stderr, "link: found $$ // cgo but no newline in %s\n", filename)
 			return
 		}
 		p0 += 1 + i
@@ -349,7 +352,7 @@ func ldpkgData(ctxt *Link, data []byte, lib *sym.Library, filename string) {
 			p1 = strings.Index(text[p0:], "\n!\n")
 		}
 		if p1 < 0 {
-			fmt.Fprintf(os.Stderr, "%s: cannot find end of // cgo section in %s\n", os.Args[0], filename)
+			fmt.Fprintf(os.Stderr, "link: cannot find end of // cgo section in %s\n", filename)
 			return
 		}
 		p1 += p0

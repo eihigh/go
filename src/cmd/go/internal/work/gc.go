@@ -675,7 +675,7 @@ func linkBaselineSnapshotPath(b *Builder, root *Action, ldflags []string) string
 	if root.Package != nil {
 		fmt.Fprintf(h, "cxx=%t\n", len(root.Package.CXXFiles) > 0 || len(root.Package.SwigCXXFiles) > 0)
 	}
-	return filepath.Join(b.WorkDir, fmt.Sprintf("link-baseline-%x.gob", h.Sum(nil)))
+	return filepath.Join(b.WorkDir, fmt.Sprintf("linker-baseline-snapshot-%x.gob", h.Sum(nil)))
 }
 
 func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, targetPath, importcfg string, allactions []*Action) error {
