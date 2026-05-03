@@ -4,7 +4,11 @@
 
 package main_test
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"testing"
+)
 
 func TestBuildCachesLinkedExecutableAcrossOutputPaths(t *testing.T) {
 	tooSlow(t, "checks that a rebuild reuses a cached linked executable")
@@ -42,4 +46,15 @@ func main() {}
 	tg.grepStderrNot(`/pkg/tool/.*/link `, "cached rebuild should skip invoking the linker")
 	tg.grepStderr(`/cache/.+/rebuild `, "cached rebuild should copy the executable from the build cache")
 	tg.mustExist(tg.path("second" + exeSuffix))
+	first, err := os.ReadFile(tg.path("first" + exeSuffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(tg.path("second" + exeSuffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) {
+		t.Fatal("cached rebuild output differs from the original executable")
+	}
 }
