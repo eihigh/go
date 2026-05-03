@@ -72,6 +72,8 @@ var (
 
 	flagInstallSuffix = flag.String("installsuffix", "", "set package directory `suffix`")
 	flagDumpDep       = flag.Bool("dumpdep", false, "dump symbol dependency graph")
+	flagBaselineCache = flag.String("baselinesnapshot", "", "read and update reusable baseline snapshot `file`")
+	flagTrimpath      = flag.Bool("trimpath", false, "record trimpath state in linker cache keys")
 	flagRace          = flag.Bool("race", false, "enable race detector")
 	flagMsan          = flag.Bool("msan", false, "enable MSan interface")
 	flagAsan          = flag.Bool("asan", false, "enable ASan interface")
@@ -361,8 +363,22 @@ func Main(arch *sys.Arch, theArch Arch) {
 	default:
 		addlibpath(ctxt, "command line", "command line", flag.Arg(0), "main", "", zerofp)
 	}
+	if *flagBaselineCache != "" {
+		snapshot, err := loadBaselineSnapshotFile(*flagBaselineCache)
+		if err == nil && snapshot != nil {
+			ctxt.SetBaselineSnapshot(snapshot)
+		}
+	}
 	bench.Start("loadlib")
 	ctxt.loadlib()
+	if *flagBaselineCache != "" {
+		if snapshot, err := ctxt.CaptureBaselineSnapshot(); err == nil {
+			if existing := ctxt.baseline; existing != nil && existing.key == snapshot.key {
+				snapshot.Merge(existing)
+			}
+			_ = saveBaselineSnapshotFile(*flagBaselineCache, snapshot)
+		}
+	}
 
 	bench.Start("inittasks")
 	ctxt.inittasks()

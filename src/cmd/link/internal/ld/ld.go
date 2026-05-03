@@ -44,9 +44,40 @@ import (
 	"cmd/link/internal/sym"
 )
 
+type packageReuseMode uint8
+
+const (
+	packageReuseUnspecified packageReuseMode = iota
+	packageReuseOverlay
+	packageReuseBaseline
+)
+
+func (m packageReuseMode) String() string {
+	switch m {
+	case packageReuseOverlay:
+		return "overlay"
+	case packageReuseBaseline:
+		return "baseline"
+	default:
+		return ""
+	}
+}
+
+func parsePackageReuseMode(s string) (packageReuseMode, bool) {
+	switch s {
+	case "overlay":
+		return packageReuseOverlay, true
+	case "baseline":
+		return packageReuseBaseline, true
+	default:
+		return packageReuseUnspecified, false
+	}
+}
+
 func (ctxt *Link) readImportCfg(file string) {
 	ctxt.PackageFile = make(map[string]string)
 	ctxt.PackageShlib = make(map[string]string)
+	ctxt.PackageReuse = make(map[string]packageReuseMode)
 	data, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatalf("-importcfg: %v", err)
@@ -83,6 +114,15 @@ func (ctxt *Link) readImportCfg(file string) {
 				log.Fatalf(`%s:%d: invalid packageshlib: syntax is "packageshlib path=filename"`, file, lineNum)
 			}
 			ctxt.PackageShlib[before] = after
+		case "packagereuse":
+			if before == "" || after == "" {
+				log.Fatalf(`%s:%d: invalid packagereuse: syntax is "packagereuse path=baseline|overlay"`, file, lineNum)
+			}
+			mode, ok := parsePackageReuseMode(after)
+			if !ok {
+				log.Fatalf(`%s:%d: invalid packagereuse mode %q`, file, lineNum, after)
+			}
+			ctxt.PackageReuse[before] = mode
 		case "modinfo":
 			s, err := strconv.Unquote(args)
 			if err != nil {

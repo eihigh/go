@@ -699,6 +699,9 @@ func (b *Builder) LinkAction(mode, depMode BuildMode, p *load.Package) *Action {
 		a.Actor = ActorFunc((*Builder).link)
 		a.Deps = []*Action{a1}
 		a.Objdir = a1.Objdir
+		if shouldCacheBuildExecutable(p) {
+			a.CacheExecutable = true
+		}
 
 		// An executable file. (This is the name of a temporary file.)
 		// Because we run the temporary file in 'go run' and 'go test',
@@ -740,6 +743,22 @@ func (b *Builder) LinkAction(mode, depMode BuildMode, p *load.Package) *Action {
 	}
 
 	return a
+}
+
+// shouldCacheBuildExecutable reports whether cmd/go should retain the linked
+// output in the build cache so a later identical build can copy it back without
+// invoking the linker again. Restrict this to ordinary main-package executable
+// builds and exclude test binaries and non-executable build modes.
+func shouldCacheBuildExecutable(p *load.Package) bool {
+	if p == nil || p.Name != "main" || p.ForTest != "" {
+		return false
+	}
+	switch cfg.BuildBuildmode {
+	case "default", "exe", "pie":
+		return true
+	default:
+		return false
+	}
 }
 
 // installAction returns the action for installing the result of a1.

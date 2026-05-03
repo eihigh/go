@@ -581,6 +581,9 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	if cfg.BuildContext.InstallSuffix != "" {
 		ldflags = append(ldflags, "-installsuffix", cfg.BuildContext.InstallSuffix)
 	}
+	if cfg.BuildTrimpath {
+		ldflags = append(ldflags, "-trimpath")
+	}
 	if root.Package.Internal.OmitDebug {
 		ldflags = append(ldflags, "-s", "-w")
 	}

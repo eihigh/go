@@ -522,34 +522,10 @@ func (ctxt *Link) findLibPath(libname string) string {
 }
 
 func (ctxt *Link) loadlib() {
-	var flags uint32
-	if *flagCheckLinkname {
-		flags |= loader.FlagCheckLinkname
-	}
-	switch *FlagStrictDups {
-	case 0:
-		// nothing to do
-	case 1, 2:
-		flags |= loader.FlagStrictDups
-	default:
-		log.Fatalf("invalid -strictdups flag value %d", *FlagStrictDups)
-	}
-	ctxt.loader = loader.NewLoader(flags, &ctxt.ErrorReporter.ErrorReporter)
-	ctxt.ErrorReporter.SymName = func(s loader.Sym) string {
-		return ctxt.loader.SymName(s)
-	}
+	ctxt.initLoader()
 
 	// ctxt.Library grows during the loop, so not a range loop.
-	i := 0
-	for ; i < len(ctxt.Library); i++ {
-		lib := ctxt.Library[i]
-		if lib.Shlib == "" {
-			if ctxt.Debugvlog > 1 {
-				ctxt.Logf("autolib: %s (from %s)\n", lib.File, lib.Objref)
-			}
-			loadobjfile(ctxt, lib)
-		}
-	}
+	i := ctxt.preloadPendingLibraries(0, "initial")
 
 	// load internal packages, if not already
 	if *flagRace {
@@ -562,12 +538,7 @@ func (ctxt *Link) loadlib() {
 		loadinternal(ctxt, "runtime/asan")
 	}
 	loadinternal(ctxt, "runtime")
-	for ; i < len(ctxt.Library); i++ {
-		lib := ctxt.Library[i]
-		if lib.Shlib == "" {
-			loadobjfile(ctxt, lib)
-		}
-	}
+	i = ctxt.preloadPendingLibraries(i, "runtime")
 	// At this point, the Go objects are "preloaded". Not all the symbols are
 	// added to the symbol table (only defined package symbols are). Looking
 	// up symbol by name may not get expected result.
@@ -689,6 +660,95 @@ func (ctxt *Link) loadlib() {
 	ctxt.Loaded = true
 
 	strictDupMsgCount = ctxt.loader.NStrictDupMsgs()
+}
+
+func (ctxt *Link) initLoader() {
+	var flags uint32
+	if *flagCheckLinkname {
+		flags |= loader.FlagCheckLinkname
+	}
+	switch *FlagStrictDups {
+	case 0:
+		// nothing to do
+	case 1, 2:
+		flags |= loader.FlagStrictDups
+	default:
+		log.Fatalf("invalid -strictdups flag value %d", *FlagStrictDups)
+	}
+	ctxt.loader = loader.NewLoader(flags, &ctxt.ErrorReporter.ErrorReporter)
+	ctxt.ErrorReporter.SymName = func(s loader.Sym) string {
+		return ctxt.loader.SymName(s)
+	}
+}
+
+func (ctxt *Link) preloadPendingLibraries(start int, phase string) int {
+	if ctxt.Debugvlog > 1 {
+		pending := ctxt.pendingPackageReuse(start)
+		ctxt.Logf("loadlib[%s]: pending baseline=%d overlay=%d\n", phase, len(pending.baseline), len(pending.overlay))
+	}
+	for ; start < len(ctxt.Library); start++ {
+		ctxt.loadLibrary(ctxt.Library[start])
+	}
+	return start
+}
+
+func (ctxt *Link) loadLibrary(lib *sym.Library) {
+	if lib == nil || lib.Shlib != "" {
+		return
+	}
+	if ctxt.tryLoadBaseline(lib) {
+		return
+	}
+	if ctxt.Debugvlog > 1 {
+		ctxt.Logf("autolib: %s (from %s)\n", lib.File, lib.Objref)
+	}
+	loadobjfile(ctxt, lib)
+}
+
+type pendingPackageReuse struct {
+	baseline []*sym.Library
+	overlay  []*sym.Library
+}
+
+func (ctxt *Link) pendingPackageReuse(start int) pendingPackageReuse {
+	var pending pendingPackageReuse
+	for _, lib := range ctxt.Library[start:] {
+		switch ctxt.packageReuseModeForLibrary(lib) {
+		case packageReuseBaseline:
+			pending.baseline = append(pending.baseline, lib)
+		default:
+			pending.overlay = append(pending.overlay, lib)
+		}
+	}
+	return pending
+}
+
+func (ctxt *Link) packageReuseModeForLibrary(lib *sym.Library) packageReuseMode {
+	if lib == nil {
+		return packageReuseOverlay
+	}
+	if mode, ok := ctxt.PackageReuse[lib.Pkg]; ok {
+		return mode
+	}
+	if lib.Pkg == "main" || strings.HasPrefix(lib.Pkg, "cmd/") {
+		return packageReuseOverlay
+	}
+	if isGOROOTPkgArtifact(lib.File) || isGOROOTPkgArtifact(lib.Shlib) {
+		return packageReuseBaseline
+	}
+	return packageReuseOverlay
+}
+
+func isGOROOTPkgArtifact(name string) bool {
+	if buildcfg.GOROOT == "" || name == "" {
+		return false
+	}
+	root := filepath.Join(buildcfg.GOROOT, "pkg")
+	rel, err := filepath.Rel(root, name)
+	if err != nil || rel == ".." {
+		return false
+	}
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // loadWindowsHostArchives loads in host archives and objects when
@@ -1081,7 +1141,7 @@ func loadobjfile(ctxt *Link, lib *sym.Library) {
 	if ctxt.Debugvlog > 1 {
 		ctxt.Logf("ldobj: %s (%s)\n", lib.File, pkg)
 	}
-	f, err := bio.Open(lib.File)
+	f, err := openLibraryFile(lib.File)
 	if err != nil {
 		Exitf("cannot open file %s: %v", lib.File, err)
 	}

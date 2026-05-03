@@ -6,10 +6,12 @@ package work
 
 import (
 	"bytes"
+	"cmd/go/internal/load"
 	"cmd/internal/objabi"
 	"cmd/internal/sys"
 	"fmt"
 	"math/rand"
+	"slices"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -83,5 +85,26 @@ func TestEncodeDecodeFuzz(t *testing.T) {
 		if got := objabi.DecodeArg(encodeArg(arg)); got != arg {
 			t.Errorf("[%d] objabi.DecodeArg(encodeArg(%q)) = %q [seed: %v]", i, arg, got, seed)
 		}
+	}
+}
+
+func TestCollectLinkInputs(t *testing.T) {
+	t.Parallel()
+
+	std := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "fmt", Name: "fmt", Goroot: true, Standard: true}}}
+	main := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "cmd/go", Name: "main", Goroot: true, Standard: true}}}
+	toolDep := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "cmd/internal/objabi", Name: "objabi", Goroot: true, Standard: true}}}
+	mod := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "example.com/mod/pkg", Name: "pkg"}}}
+
+	inputs := collectLinkInputs([]*Action{{Mode: "nop"}, std, main, toolDep, mod})
+
+	if got, want := inputs.all, []*Action{std, main, toolDep, mod}; !slices.Equal(got, want) {
+		t.Fatalf("all inputs = %#v, want %#v", got, want)
+	}
+	if got, want := inputs.baseline, []*Action{std}; !slices.Equal(got, want) {
+		t.Fatalf("baseline inputs = %#v, want %#v", got, want)
+	}
+	if got, want := inputs.overlay, []*Action{main, toolDep, mod}; !slices.Equal(got, want) {
+		t.Fatalf("overlay inputs = %#v, want %#v", got, want)
 	}
 }

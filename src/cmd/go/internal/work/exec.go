@@ -1479,17 +1479,60 @@ func (b *Builder) link(ctx context.Context, a *Action) (err error) {
 	return nil
 }
 
+type linkInputReuseMode string
+
+const (
+	linkInputOverlayReuse  linkInputReuseMode = "overlay"
+	linkInputBaselineReuse linkInputReuseMode = "baseline"
+)
+
+type linkInputs struct {
+	all      []*Action
+	baseline []*Action
+	overlay  []*Action
+}
+
+func collectLinkInputs(deps []*Action) linkInputs {
+	var inputs linkInputs
+	for _, dep := range deps {
+		if dep.Package == nil {
+			continue
+		}
+		inputs.all = append(inputs.all, dep)
+		switch linkInputReuseModeForPackage(dep.Package) {
+		case linkInputBaselineReuse:
+			inputs.baseline = append(inputs.baseline, dep)
+		default:
+			inputs.overlay = append(inputs.overlay, dep)
+		}
+	}
+	return inputs
+}
+
+func linkInputReuseModeForPackage(p *load.Package) linkInputReuseMode {
+	if p == nil {
+		return linkInputOverlayReuse
+	}
+	if p.Goroot && p.Standard && p.Name != "main" && !strings.HasPrefix(p.ImportPath, "cmd/") {
+		return linkInputBaselineReuse
+	}
+	return linkInputOverlayReuse
+}
+
 func (b *Builder) writeLinkImportcfg(a *Action, file string) error {
 	// Prepare Go import cfg.
 	var icfg bytes.Buffer
-	for _, a1 := range a.Deps {
+	inputs := collectLinkInputs(a.Deps)
+	for _, a1 := range inputs.all {
 		p1 := a1.Package
-		if p1 == nil {
-			continue
-		}
 		fmt.Fprintf(&icfg, "packagefile %s=%s\n", p1.ImportPath, a1.built)
 		if p1.Shlib != "" {
 			fmt.Fprintf(&icfg, "packageshlib %s=%s\n", p1.ImportPath, p1.Shlib)
+		}
+	}
+	for _, group := range [][]*Action{inputs.baseline, inputs.overlay} {
+		for _, a1 := range group {
+			fmt.Fprintf(&icfg, "packagereuse %s=%s\n", a1.Package.ImportPath, linkInputReuseModeForPackage(a1.Package))
 		}
 	}
 	info := ""
