@@ -200,6 +200,8 @@ type actionJSON struct {
 }
 
 func recordLinkInputs(j *actionJSON) {
+	const packageMainPrefix = "packagemain "
+
 	if j == nil {
 		return
 	}
@@ -219,8 +221,8 @@ func recordLinkInputs(j *actionJSON) {
 			j.LinkInputMode = line
 		case strings.HasPrefix(line, "packagefile "):
 			j.LinkInputPackageFiles = append(j.LinkInputPackageFiles, line)
-		case strings.HasPrefix(line, "packagemain "):
-			j.LinkInputPackageMain = strings.TrimPrefix(line, "packagemain ")
+		case strings.HasPrefix(line, packageMainPrefix):
+			j.LinkInputPackageMain = strings.TrimPrefix(line, packageMainPrefix)
 		case strings.HasPrefix(line, "packageshlib "):
 			j.LinkInputPackageShlibs = append(j.LinkInputPackageShlibs, line)
 		default:
