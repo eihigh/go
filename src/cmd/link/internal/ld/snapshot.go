@@ -322,7 +322,6 @@ func ldpkgData(ctxt *Link, data []byte, lib *sym.Library, filename string) {
 	p0 := strings.Index(text, "\n$$  // cgo")
 	var p1 int
 	if p0 >= 0 {
-		p0 += p1
 		i := strings.IndexByte(text[p0+1:], '\n')
 		if i < 0 {
 			fmt.Fprintf(os.Stderr, "%s: found $$ // cgo but no newline in %s\n", os.Args[0], filename)
