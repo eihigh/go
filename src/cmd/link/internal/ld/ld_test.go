@@ -6,6 +6,7 @@ package ld
 
 import (
 	"bytes"
+	"cmd/internal/sys"
 	"debug/pe"
 	"fmt"
 	"internal/testenv"
@@ -76,6 +77,26 @@ func TestUndefinedRelocErrors(t *testing.T) {
 	}
 	for unexpected, n := range unexpectedErrors {
 		t.Errorf("unexpected error: %s (x%d)", unexpected, n)
+	}
+}
+
+func TestReadImportCfgPackageReuse(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	importcfg := filepath.Join(dir, "importcfg")
+	if err := os.WriteFile(importcfg, []byte("packagefile fmt=/goroot/pkg/fmt.a\npackagereuse fmt=baseline\npackagefile example.com/mod=/tmp/mod.a\npackagereuse example.com/mod=overlay\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
+
+	ctxt := linknew(sys.ArchAMD64)
+	ctxt.readImportCfg(importcfg)
+
+	if got := ctxt.PackageReuse["fmt"]; got != packageReuseBaseline {
+		t.Fatalf("PackageReuse[fmt] = %v, want %v", got, packageReuseBaseline)
+	}
+	if got := ctxt.PackageReuse["example.com/mod"]; got != packageReuseOverlay {
+		t.Fatalf("PackageReuse[example.com/mod] = %v, want %v", got, packageReuseOverlay)
 	}
 }
 
