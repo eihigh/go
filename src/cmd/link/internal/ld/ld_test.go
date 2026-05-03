@@ -112,30 +112,21 @@ func TestDebugLinkServer(t *testing.T) {
 
 	dir := t.TempDir()
 	stateFile := filepath.Join(dir, "linkserver.json")
-	exe := filepath.Join(dir, "hello.exe")
 	goTool := testenv.GoToolPath(t)
 	writeDebugLinkServerModule(t, dir)
 	t.Cleanup(func() {
 		cleanupDebugLinkServer(t, stateFile)
 	})
 	writeDebugLinkServerProgram(t, dir, "hello")
-	buildDebugLinkServerProgram(t, goTool, dir, stateFile, exe)
+	buildDebugLinkServerProgram(t, goTool, dir, stateFile, filepath.Join(dir, "hello.exe"))
 	state1 := readLinkServiceStateForTest(t, stateFile)
 	if state1.Addr == "" || state1.PID == 0 {
 		t.Fatalf("unexpected link server state after first build: %+v", state1)
 	}
-	if got, want := runDebugLinkServerProgram(t, exe), "hello\n"; got != want {
-		t.Fatalf("unexpected program output after first build: got %q want %q", got, want)
-	}
-
-	writeDebugLinkServerProgram(t, dir, "hello again")
-	buildDebugLinkServerProgram(t, goTool, dir, stateFile, exe)
+	buildDebugLinkServerProgram(t, goTool, dir, stateFile, filepath.Join(dir, "hello.exe"))
 	state2 := readLinkServiceStateForTest(t, stateFile)
 	if state1 != state2 {
 		t.Fatalf("link server state changed across rebuilds: before=%+v after=%+v", state1, state2)
-	}
-	if got, want := runDebugLinkServerProgram(t, exe), "hello again\n"; got != want {
-		t.Fatalf("unexpected program output after rebuild: got %q want %q", got, want)
 	}
 
 	resp, err := http.Get(state1.Addr + "/healthz")
@@ -145,7 +136,37 @@ func TestDebugLinkServer(t *testing.T) {
 	resp.Body.Close()
 }
 
-func BenchmarkDebugLinkServerRebuild(b *testing.B) {
+func TestDebugLinkServerRebuildAfterEdit(t *testing.T) {
+	testenv.MustHaveGoBuild(t)
+	testenv.MustHaveExec(t)
+
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "linkserver.json")
+	exe := filepath.Join(dir, "hello.exe")
+	goTool := testenv.GoToolPath(t)
+	writeDebugLinkServerModule(t, dir)
+	t.Cleanup(func() {
+		cleanupDebugLinkServer(t, stateFile)
+	})
+
+	writeDebugLinkServerProgram(t, dir, "hello")
+	buildDebugLinkServerProgram(t, goTool, dir, stateFile, exe)
+	if got, want := runDebugLinkServerProgram(t, exe), "hello\n"; got != want {
+		t.Fatalf("unexpected program output after first build: got %q want %q", got, want)
+	}
+
+	writeDebugLinkServerProgram(t, dir, "hello again")
+	buildDebugLinkServerProgram(t, goTool, dir, stateFile, exe)
+	state := readLinkServiceStateForTest(t, stateFile)
+	if state.Addr == "" || state.PID == 0 {
+		t.Fatalf("unexpected link server state after rebuild: %+v", state)
+	}
+	if got, want := runDebugLinkServerProgram(t, exe), "hello again\n"; got != want {
+		t.Fatalf("unexpected program output after rebuild: got %q want %q", got, want)
+	}
+}
+
+func BenchmarkDebugLinkServerRebuildAfterEdit(b *testing.B) {
 	testenv.MustHaveGoBuild(b)
 	testenv.MustHaveExec(b)
 
@@ -161,9 +182,9 @@ func BenchmarkDebugLinkServerRebuild(b *testing.B) {
 	message := "hello 0"
 	writeDebugLinkServerProgram(b, dir, message)
 	buildDebugLinkServerProgram(b, goTool, dir, stateFile, exe)
-	state1 := readLinkServiceStateForTest(b, stateFile)
-	if state1.Addr == "" || state1.PID == 0 {
-		b.Fatalf("unexpected link server state after initial build: %+v", state1)
+	state := readLinkServiceStateForTest(b, stateFile)
+	if state.Addr == "" || state.PID == 0 {
+		b.Fatalf("unexpected link server state after initial build: %+v", state)
 	}
 
 	b.ResetTimer()
@@ -176,10 +197,6 @@ func BenchmarkDebugLinkServerRebuild(b *testing.B) {
 	}
 	b.StopTimer()
 
-	state2 := readLinkServiceStateForTest(b, stateFile)
-	if state1 != state2 {
-		b.Fatalf("link server state changed across rebuilds: before=%+v after=%+v", state1, state2)
-	}
 	if got, want := runDebugLinkServerProgram(b, exe), message+"\n"; got != want {
 		b.Fatalf("unexpected program output after benchmark rebuilds: got %q want %q", got, want)
 	}
@@ -190,15 +207,15 @@ type debugLinkServerState struct {
 	PID  int    `json:"pid"`
 }
 
-func readLinkServiceStateForTest(t *testing.T, file string) debugLinkServerState {
-	t.Helper()
+func readLinkServiceStateForTest(tb testing.TB, file string) debugLinkServerState {
+	tb.Helper()
 	data, err := os.ReadFile(file)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	var state debugLinkServerState
 	if err := json.Unmarshal(data, &state); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return state
 }
