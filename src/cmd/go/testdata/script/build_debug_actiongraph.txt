@@ -1,0 +1,20 @@
+[!compiler:gc] skip
+
+env GO111MODULE=off
+env GOCACHE=$WORK/gocache
+mkdir $GOCACHE
+
+go build -o $WORK/hello.exe -debug-actiongraph=$WORK/graph1.json hello.go
+grep '"Mode":[[:space:]]*"link"' $WORK/graph1.json
+grep '"ActionIDInputs":[[:space:]]*"link\\n' $WORK/graph1.json
+grep 'packagemain ' $WORK/graph1.json
+grep '"CacheResult":[[:space:]]*"miss"' $WORK/graph1.json
+
+go build -o $WORK/hello.exe -debug-actiongraph=$WORK/graph2.json hello.go
+grep '"CacheResult":[[:space:]]*"target-buildid"' $WORK/graph2.json
+grep '"CacheResult":[[:space:]]*"main-target-link"' $WORK/graph2.json
+
+-- hello.go --
+package main
+
+func main() {}

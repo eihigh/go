@@ -181,7 +181,9 @@ type actionJSON struct {
 	NeedVet    bool      `json:",omitempty"`
 	NeedBuild  bool      `json:",omitempty"`
 	ActionID   string    `json:",omitempty"`
+	ActionIDInputs string `json:",omitempty"`
 	BuildID    string    `json:",omitempty"`
+	CacheResult string   `json:",omitempty"`
 	TimeReady  time.Time `json:",omitempty"`
 	TimeStart  time.Time `json:",omitempty"`
 	TimeDone   time.Time `json:",omitempty"`

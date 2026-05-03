@@ -100,6 +100,10 @@ func (b *Builder) Do(ctx context.Context, root *Action) {
 		a.priority = i
 	}
 
+	if cfg.DebugActiongraph != "" {
+		cache.RecordHashDebug()
+	}
+
 	// Write action graph, without timing information, in case we fail and exit early.
 	writeActionGraph := func() {
 		if file := cfg.DebugActiongraph; file != "" {

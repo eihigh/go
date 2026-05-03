@@ -16,7 +16,10 @@ import (
 	"sync"
 )
 
-var debugHash = false // set when GODEBUG=gocachehash=1
+var (
+	debugHash       = false // set when GODEBUG=gocachehash=1
+	recordHashDebug = false
+)
 
 // HashSize is the number of bytes in a hash.
 const HashSize = 32
@@ -66,8 +69,11 @@ func Subkey(parent ActionID, desc string) ActionID {
 	if debugHash {
 		fmt.Fprintf(os.Stderr, "HASH subkey %x %q = %x\n", parent, desc, out)
 	}
-	if verify {
+	if verify || recordHashDebug {
 		hashDebug.Lock()
+		if hashDebug.m == nil {
+			hashDebug.m = make(map[[HashSize]byte]string)
+		}
 		hashDebug.m[out] = fmt.Sprintf("subkey %x %q", parent, desc)
 		hashDebug.Unlock()
 	}
@@ -82,7 +88,7 @@ func NewHash(name string) *Hash {
 		fmt.Fprintf(os.Stderr, "HASH[%s]\n", h.name)
 	}
 	h.Write(hashSalt)
-	if verify {
+	if verify || recordHashDebug {
 		h.buf = new(bytes.Buffer)
 	}
 	return h
@@ -132,6 +138,16 @@ func reverseHash(id [HashSize]byte) string {
 	s := hashDebug.m[id]
 	hashDebug.Unlock()
 	return s
+}
+
+// RecordHashDebug enables retaining hash inputs for later inspection.
+func RecordHashDebug() {
+	recordHashDebug = true
+}
+
+// DebugHashInput returns the recorded input used to compute id, if available.
+func DebugHashInput(id [HashSize]byte) string {
+	return reverseHash(id)
 }
 
 var hashFileCache struct {

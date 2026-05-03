@@ -423,6 +423,7 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 	actionID := buildid.HashToString(actionHash)
 	if a.json != nil {
 		a.json.ActionID = actionID
+		a.json.ActionIDInputs = cache.DebugHashInput(actionHash)
 	}
 	contentID := actionID // temporary placeholder, likely unique
 	a.buildID = actionID + buildIDSeparator + contentID
@@ -436,6 +437,9 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 
 	// If user requested -a, we force a rebuild, so don't use the cache.
 	if cfg.BuildA {
+		if a.json != nil {
+			a.json.CacheResult = "build-a"
+		}
 		if p := a.Package; p != nil && !p.Stale {
 			p.Stale = true
 			p.StaleReason = "build -a flag in use"
@@ -467,6 +471,7 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 			a.buildID = buildID
 			if a.json != nil {
 				a.json.BuildID = a.buildID
+				a.json.CacheResult = "target-buildid"
 			}
 			a.built = target
 			// Poison a.Target to catch uses later in the build.
@@ -507,6 +512,7 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 					a.built = "DO NOT USE - main build pseudo-cache built"
 					if a.json != nil {
 						a.json.BuildID = a.buildID
+						a.json.CacheResult = "main-target-link"
 					}
 					return true
 				}
@@ -527,6 +533,9 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 	// We avoid the nested build ID problem in the previous special case
 	// by recording the test results in the cache under the action ID half.
 	if len(a.triggers) == 1 && a.triggers[0].TryCache != nil && a.triggers[0].TryCache(b, a.triggers[0]) {
+		if a.json != nil {
+			a.json.CacheResult = "trigger-cache"
+		}
 		// Best effort attempt to display output from the compile and link steps.
 		// If it doesn't work, it doesn't work: reusing the test result is more
 		// important than reprinting diagnostic information.
@@ -549,6 +558,9 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 			// TODO(prattmic): better would be to add a build ID to the format.
 			a.built = file
 			a.Target = "DO NOT USE - using cache"
+			if a.json != nil {
+				a.json.CacheResult = "cache-entry"
+			}
 			return true
 		}
 		if buildID, err := buildid.ReadFile(file); err == nil {
@@ -569,6 +581,7 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 			a.buildID = buildID
 			if a.json != nil {
 				a.json.BuildID = a.buildID
+				a.json.CacheResult = "cache-entry"
 			}
 			if p := a.Package; p != nil && target != "" {
 				p.Stale = true
@@ -580,6 +593,9 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 	}
 
 	// If we've reached this point, we can't use the cache for the action.
+	if a.json != nil {
+		a.json.CacheResult = "miss"
+	}
 	if p := a.Package; p != nil && !p.Stale {
 		p.Stale = true
 		p.StaleReason = "build ID mismatch"
