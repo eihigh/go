@@ -189,7 +189,7 @@ func captureBaselineLibrary(lib *sym.Library) (*baselineLibrarySnapshot, error) 
 			continue
 		}
 		if len(arhdr.name) < 16 {
-			if ext := filepathExt(arhdr.name); ext != ".o" && ext != ".syso" {
+			if ext := filepath.Ext(arhdr.name); ext != ".o" && ext != ".syso" {
 				continue
 			}
 		}
@@ -354,18 +354,6 @@ func ldpkgData(ctxt *Link, data []byte, lib *sym.Library, filename string) {
 	}
 }
 
-func filepathExt(name string) string {
-	for i := len(name) - 1; i >= 0; i-- {
-		switch name[i] {
-		case '/':
-			return ""
-		case '.':
-			return name[i:]
-		}
-	}
-	return ""
-}
-
 type baselineSnapshotDisk struct {
 	Key       BaselineSnapshotKey
 	Libraries map[string]baselineLibrarySnapshotDisk
@@ -427,7 +415,7 @@ func saveBaselineSnapshotFile(path string, snapshot *BaselineSnapshot) error {
 	if snapshot == nil {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
 
