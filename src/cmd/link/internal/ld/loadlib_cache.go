@@ -38,6 +38,8 @@ type cachedArchiveMember struct {
 	objectData []byte
 }
 
+const archiveNameFieldSize = 16
+
 func newLoadlibCache() *loadlibCache {
 	return &loadlibCache{archives: make(map[string]cachedArchiveEntry)}
 }
@@ -126,7 +128,10 @@ func parseCachedArchive(file string) (*cachedArchive, bool) {
 			ar.preferlinkext = true
 			continue
 		}
-		if len(name) < 16 {
+		// Short archive member names are stored inline in the fixed-width name field.
+		// Restrict cached inline members to Go object members so special sections
+		// such as dynimport metadata are handled explicitly above.
+		if len(name) < archiveNameFieldSize {
 			switch filepath.Ext(name) {
 			case ".o":
 			default:

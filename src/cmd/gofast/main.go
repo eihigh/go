@@ -41,6 +41,8 @@ type service struct {
 	mu     sync.Mutex
 }
 
+const serverStartTimeout = 5 * time.Second
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -158,7 +160,7 @@ func ensureServer(stateFile string) (linkServiceState, error) {
 		return linkServiceState{}, err
 	}
 	_ = cmd.Process.Release()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(serverStartTimeout)
 	for time.Now().Before(deadline) {
 		state, err := readState(stateFile)
 		if err == nil && linkServerHealthy(state.Addr) {
