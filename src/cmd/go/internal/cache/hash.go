@@ -123,10 +123,10 @@ func (h *Hash) Sum() [HashSize]byte {
 	return out
 }
 
-// In GODEBUG=gocacheverify=1 mode,
+// When cache hash debug recording is enabled,
 // hashDebug holds the input to every computed hash ID,
 // so that we can work backward from the ID involved in a
-// cache entry mismatch to a description of what should be there.
+// cache entry mismatch or debug dump to a description of what should be there.
 var hashDebug struct {
 	sync.Mutex
 	m map[[HashSize]byte]string
