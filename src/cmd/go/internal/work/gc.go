@@ -628,6 +628,7 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	if err != nil {
 		return err
 	}
+	ldflags = append(ldflags, "-baselinesnapshot="+linkBaselineSnapshotPath(b, root, ldflags))
 
 	// On OS X when using external linking to build a shared library,
 	// the argument passed here to -o ends up recorded in the final
@@ -653,6 +654,23 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 		env = append(env, "GOROOT="+cfg.GOROOT)
 	}
 	return b.Shell(root).run(dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags, mainpkg)
+}
+
+func linkBaselineSnapshotPath(b *Builder, root *Action, ldflags []string) string {
+	h := sha1.New()
+	fmt.Fprintf(h, "goroot=%s\n", cfg.GOROOT)
+	fmt.Fprintf(h, "goos=%s\n", cfg.Goos)
+	fmt.Fprintf(h, "goarch=%s\n", cfg.Goarch)
+	fmt.Fprintf(h, "goexperiment=%s\n", buildcfg.Experiment.String())
+	fmt.Fprintf(h, "buildmode=%s\n", ldBuildmode)
+	fmt.Fprintf(h, "trimpath=%t\n", cfg.BuildTrimpath)
+	for _, flag := range ldflags {
+		fmt.Fprintf(h, "ldflag=%s\n", flag)
+	}
+	if root.Package != nil {
+		fmt.Fprintf(h, "cxx=%t\n", len(root.Package.CXXFiles) > 0 || len(root.Package.SwigCXXFiles) > 0)
+	}
+	return filepath.Join(b.WorkDir, fmt.Sprintf("link-baseline-%x.gob", h.Sum(nil)))
 }
 
 func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, targetPath, importcfg string, allactions []*Action) error {

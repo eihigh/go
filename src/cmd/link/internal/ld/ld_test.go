@@ -202,6 +202,49 @@ func TestBaselineSnapshotInvalidationFallsBack(t *testing.T) {
 	}
 }
 
+func TestBaselineSnapshotRoundTrip(t *testing.T) {
+	t.Parallel()
+	testenv.MustHaveGoBuild(t)
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "p.go")
+	archive := filepath.Join(dir, "p.a")
+	cacheFile := filepath.Join(dir, "baseline.gob")
+	if err := os.WriteFile(src, []byte("package p\nconst X = 1\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	cmd := testenv.Command(t, testenv.GoToolPath(t), "tool", "compile", "-p=p", "-pack", "-o", archive, src)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("compile failed: %v\n%s", err, out)
+	}
+
+	ctxt := linknew(sys.ArchAMD64)
+	ctxt.BuildMode = BuildModeExe
+	ctxt.LinkMode = LinkInternal
+	ctxt.PackageReuse = map[string]packageReuseMode{"p": packageReuseBaseline}
+	ctxt.Library = []*sym.Library{{Pkg: "p", File: archive, Objref: "test", Srcref: "test"}}
+	snapshot, err := ctxt.CaptureBaselineSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveBaselineSnapshotFile(cacheFile, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadBaselineSnapshotFile(cacheFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded == nil {
+		t.Fatal("loaded snapshot is nil")
+	}
+	if loaded.key != snapshot.key {
+		t.Fatalf("loaded key = %#v, want %#v", loaded.key, snapshot.key)
+	}
+	if got := loaded.libraries["p"]; got == nil || len(got.objects) == 0 {
+		t.Fatalf("loaded snapshot for p = %#v, want objects", got)
+	}
+}
+
 const carchiveSrcText = `
 package main
 

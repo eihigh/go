@@ -9,11 +9,13 @@ import (
 	"cmd/internal/bio"
 	"cmd/internal/objabi"
 	"cmd/link/internal/sym"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"internal/buildcfg"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -123,6 +125,17 @@ func (ctxt *Link) tryLoadBaseline(lib *sym.Library) bool {
 		ctxt.Logf("loadlib[baseline]: reused %s from snapshot\n", lib.Pkg)
 	}
 	return true
+}
+
+func (s *BaselineSnapshot) Merge(other *BaselineSnapshot) {
+	if s == nil || other == nil || s.key != other.key {
+		return
+	}
+	for pkg, lib := range other.libraries {
+		if _, ok := s.libraries[pkg]; !ok {
+			s.libraries[pkg] = lib
+		}
+	}
 }
 
 func captureBaselineLibrary(lib *sym.Library) (*baselineLibrarySnapshot, error) {
@@ -351,4 +364,106 @@ func filepathExt(name string) string {
 		}
 	}
 	return ""
+}
+
+type baselineSnapshotDisk struct {
+	Key       BaselineSnapshotKey
+	Libraries map[string]baselineLibrarySnapshotDisk
+}
+
+type baselineLibrarySnapshotDisk struct {
+	File        string
+	Size        int64
+	ModUnixNano int64
+	Objects     []baselineObjectSnapshotDisk
+}
+
+type baselineObjectSnapshotDisk struct {
+	DisplayName string
+	SourceFile  string
+	Data        []byte
+	Readonly    bool
+}
+
+func loadBaselineSnapshotFile(path string) (*BaselineSnapshot, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var disk baselineSnapshotDisk
+	if err := gob.NewDecoder(f).Decode(&disk); err != nil {
+		return nil, err
+	}
+	snapshot := &BaselineSnapshot{
+		key:       disk.Key,
+		libraries: make(map[string]*baselineLibrarySnapshot, len(disk.Libraries)),
+	}
+	for pkg, lib := range disk.Libraries {
+		ls := &baselineLibrarySnapshot{
+			file:        lib.File,
+			size:        lib.Size,
+			modUnixNano: lib.ModUnixNano,
+			objects:     make([]baselineObjectSnapshot, len(lib.Objects)),
+		}
+		for i, obj := range lib.Objects {
+			ls.objects[i] = baselineObjectSnapshot{
+				displayName: obj.DisplayName,
+				sourceFile:  obj.SourceFile,
+				data:        obj.Data,
+				readonly:    obj.Readonly,
+			}
+		}
+		snapshot.libraries[pkg] = ls
+	}
+	return snapshot, nil
+}
+
+func saveBaselineSnapshotFile(path string, snapshot *BaselineSnapshot) error {
+	if snapshot == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0777); err != nil {
+		return err
+	}
+
+	disk := baselineSnapshotDisk{
+		Key:       snapshot.key,
+		Libraries: make(map[string]baselineLibrarySnapshotDisk, len(snapshot.libraries)),
+	}
+	for pkg, lib := range snapshot.libraries {
+		ls := baselineLibrarySnapshotDisk{
+			File:        lib.file,
+			Size:        lib.size,
+			ModUnixNano: lib.modUnixNano,
+			Objects:     make([]baselineObjectSnapshotDisk, len(lib.objects)),
+		}
+		for i, obj := range lib.objects {
+			ls.Objects[i] = baselineObjectSnapshotDisk{
+				DisplayName: obj.displayName,
+				SourceFile:  obj.sourceFile,
+				Data:        obj.data,
+				Readonly:    obj.readonly,
+			}
+		}
+		disk.Libraries[pkg] = ls
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := gob.NewEncoder(tmp).Encode(&disk); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
