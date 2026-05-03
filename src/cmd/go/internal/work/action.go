@@ -745,6 +745,10 @@ func (b *Builder) LinkAction(mode, depMode BuildMode, p *load.Package) *Action {
 	return a
 }
 
+// shouldCacheBuildExecutable reports whether cmd/go should retain the linked
+// output in the build cache so a later identical build can copy it back without
+// invoking the linker again. Restrict this to ordinary main-package executable
+// builds and exclude test binaries and non-executable build modes.
 func shouldCacheBuildExecutable(p *load.Package) bool {
 	if p == nil || p.Name != "main" || p.ForTest != "" {
 		return false
