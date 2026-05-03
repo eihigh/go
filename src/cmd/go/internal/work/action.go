@@ -209,10 +209,11 @@ func recordLinkInputs(j *actionJSON) {
 		return
 	}
 
-	for _, line := range strings.Split(strings.TrimSuffix(j.ActionIDInputs, "\n"), "\n") {
-		if line == "" {
-			continue
-		}
+	inputs := strings.TrimSuffix(j.ActionIDInputs, "\n")
+	if inputs == "" {
+		return
+	}
+	for _, line := range strings.Split(inputs, "\n") {
 		switch {
 		case line == "link" || line == "linkShared":
 			j.LinkInputConfig = append(j.LinkInputConfig, line)
