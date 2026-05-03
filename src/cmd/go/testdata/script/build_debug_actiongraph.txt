@@ -7,9 +7,9 @@ mkdir $GOCACHE
 go build -o $WORK/hello.exe -debug-actiongraph=$WORK/graph1.json hello.go
 grep '"Mode":[[:space:]]*"link"' $WORK/graph1.json
 grep '"ActionIDInputs":[[:space:]]*"link\\n' $WORK/graph1.json
-grep '"LinkInputConfig":[[:space:]]*\\[' $WORK/graph1.json
-grep '"LinkInputPackageFiles":[[:space:]]*\\[' $WORK/graph1.json
-grep '"LinkInputPackageMain":[[:space:]]*"' $WORK/graph1.json
+grep '"LinkInputConfig":' $WORK/graph1.json
+grep '"LinkInputPackageFiles":' $WORK/graph1.json
+grep '"LinkInputPackageMain":' $WORK/graph1.json
 grep '"CacheResult":[[:space:]]*"miss"' $WORK/graph1.json
 
 go build -o $WORK/hello.exe -debug-actiongraph=$WORK/graph2.json hello.go
