@@ -725,7 +725,9 @@ func restoreLinkBaselineSnapshotCache(b *Builder, root *Action, id cache.ActionI
 	if err != nil {
 		return
 	}
-	_ = b.Shell(root).CopyFile(dst, file, 0666, true)
+	if err := b.Shell(root).CopyFile(dst, file, 0666, true); err != nil && cfg.BuildX {
+		b.Shell(root).ShowCmd("", "warning: unable to restore linker baseline snapshot from %s: %v # internal", file, err)
+	}
 }
 
 func storeLinkBaselineSnapshotCache(id cache.ActionID, path string) {

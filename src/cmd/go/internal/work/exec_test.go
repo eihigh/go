@@ -113,13 +113,13 @@ func TestCollectLinkInputs(t *testing.T) {
 func TestLinkBaselineSnapshotIDIgnoresImportPath(t *testing.T) {
 	t.Parallel()
 
-	oldBuildmode := ldBuildmode
-	oldForced := forcedLdflags
+	oldLdBuildmode := ldBuildmode
+	oldForcedLdflags := forcedLdflags
 	ldBuildmode = "exe"
 	forcedLdflags = nil
 	t.Cleanup(func() {
-		ldBuildmode = oldBuildmode
-		forcedLdflags = oldForced
+		ldBuildmode = oldLdBuildmode
+		forcedLdflags = oldForcedLdflags
 	})
 
 	b := &Builder{}
