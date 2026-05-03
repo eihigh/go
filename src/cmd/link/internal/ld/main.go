@@ -73,6 +73,7 @@ var (
 	flagInstallSuffix = flag.String("installsuffix", "", "set package directory `suffix`")
 	flagDumpDep       = flag.Bool("dumpdep", false, "dump symbol dependency graph")
 	flagBaselineCache = flag.String("baselinesnapshot", "", "read and update reusable baseline snapshot `file`")
+	flagTrimpath      = flag.Bool("trimpath", false, "record trimpath state in linker cache keys")
 	flagRace          = flag.Bool("race", false, "enable race detector")
 	flagMsan          = flag.Bool("msan", false, "enable MSan interface")
 	flagAsan          = flag.Bool("asan", false, "enable ASan interface")

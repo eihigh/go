@@ -75,7 +75,7 @@ func (ctxt *Link) BaselineSnapshotKey() BaselineSnapshotKey {
 		Race:          *flagRace,
 		Msan:          *flagMsan,
 		Asan:          *flagAsan,
-		Trimpath:      buildcfg.GOROOT == "",
+		Trimpath:      *flagTrimpath,
 		CheckLinkname: *flagCheckLinkname,
 		StrictDups:    *FlagStrictDups,
 		PackageData:   !*flagG,
@@ -92,7 +92,7 @@ func (ctxt *Link) CaptureBaselineSnapshot() (*BaselineSnapshot, error) {
 		libraries: make(map[string]*baselineLibrarySnapshot),
 	}
 	for _, lib := range ctxt.Library {
-		if ctxt.packageReuseModeForLibrary(lib) != packageReuseBaseline || lib == nil || lib.Shlib != "" {
+		if lib == nil || lib.Shlib != "" || ctxt.packageReuseModeForLibrary(lib) != packageReuseBaseline {
 			continue
 		}
 		ls, err := captureBaselineLibrary(lib)
@@ -105,7 +105,7 @@ func (ctxt *Link) CaptureBaselineSnapshot() (*BaselineSnapshot, error) {
 }
 
 func (ctxt *Link) tryLoadBaseline(lib *sym.Library) bool {
-	if lib == nil || ctxt.packageReuseModeForLibrary(lib) != packageReuseBaseline || ctxt.baseline == nil {
+	if lib == nil || ctxt.baseline == nil || ctxt.packageReuseModeForLibrary(lib) != packageReuseBaseline {
 		return false
 	}
 	if ctxt.baseline.key != ctxt.BaselineSnapshotKey() {
