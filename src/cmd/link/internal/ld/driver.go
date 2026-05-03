@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"cmd/link/internal/sym"
 )
@@ -18,6 +19,7 @@ type Driver struct {
 	arch    *sys.Arch
 	theArch Arch
 	cache   *loadlibCache
+	mu      sync.Mutex
 }
 
 func NewDriver(arch *sys.Arch, theArch Arch) *Driver {
@@ -28,7 +30,10 @@ func NewDriver(arch *sys.Arch, theArch Arch) *Driver {
 	}
 }
 
-func (d *Driver) Run(args []string, dir string, env []string, stdout, stderr *os.File) error {
+func (d *Driver) Run(args []string, dir string, env []string, stdout, stderr *os.File) (err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	oldwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -84,31 +89,21 @@ type linkerExit struct {
 }
 
 func applyEnv(env []string) func() {
-	type oldEnv struct {
-		key   string
-		value string
-		ok    bool
-	}
-	old := make([]oldEnv, 0, len(env))
+	old := append([]string(nil), os.Environ()...)
+	os.Clearenv()
 	for _, kv := range env {
 		key, value, ok := strings.Cut(kv, "=")
 		if !ok {
 			continue
 		}
-		prev, had := os.LookupEnv(key)
-		old = append(old, oldEnv{key: key, value: prev, ok: had})
-		if value == "" {
-			os.Unsetenv(key)
-		} else {
-			os.Setenv(key, value)
-		}
+		os.Setenv(key, value)
 	}
 	return func() {
-		for i := len(old) - 1; i >= 0; i-- {
-			if old[i].ok {
-				os.Setenv(old[i].key, old[i].value)
-			} else {
-				os.Unsetenv(old[i].key)
+		os.Clearenv()
+		for _, kv := range old {
+			key, value, ok := strings.Cut(kv, "=")
+			if ok {
+				os.Setenv(key, value)
 			}
 		}
 	}

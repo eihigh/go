@@ -202,7 +202,7 @@ func (ar *cachedArchive) load(ctxt *Link, lib *sym.Library) {
 		unit := &sym.CompilationUnit{Lib: lib}
 		lib.Units = append(lib.Units, unit)
 		ldpkgData(ctxt, lib, m.importData, m.filename)
-		fingerprint := ctxt.loader.PreloadFromBytes(ctxt.IncVersion(), m.objectData, false, lib, unit)
+		fingerprint := ctxt.loader.PreloadFromBytes(ctxt.IncVersion(), m.objectData, false, lib, unit, m.filename)
 		if !fingerprint.IsZero() {
 			if lib.Fingerprint.IsZero() {
 				lib.Fingerprint = fingerprint

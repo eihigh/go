@@ -170,7 +170,7 @@ func (t *ternaryFlag) IsBoolFlag() bool { return true } // parse like a boolean 
 
 func initCommandFlags() {
 	setupFlagsOnce.Do(func() {
-		if buildcfg.GOARCH == "amd64" && buildcfg.GOOS == "plan9" {
+		if buildcfg.GOOS == "plan9" {
 			flag.BoolVar(&flag8, "8", false, "use 64-bit addresses in symbol table")
 		}
 		flag.BoolVar(&flagLinkshared, "linkshared", false, "link against installed Go shared libraries")

@@ -201,7 +201,10 @@ func linkServerHealthy(addr string) bool {
 	if err != nil {
 		return false
 	}
-	io.Copy(io.Discard, resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		resp.Body.Close()
+		return false
+	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
 }
@@ -274,12 +277,12 @@ func (s *service) handleLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	stdout, err := os.ReadFile(stdoutFile.Name())
+	stdout, err := io.ReadAll(stdoutFile)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	stderr, err := os.ReadFile(stderrFile.Name())
+	stderr, err := io.ReadAll(stderrFile)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
