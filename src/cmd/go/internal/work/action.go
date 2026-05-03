@@ -182,11 +182,11 @@ type actionJSON struct {
 	NeedBuild              bool      `json:",omitempty"`
 	ActionID               string    `json:",omitempty"`
 	ActionIDInputs         string    `json:",omitempty"`
+	LinkInputMode          string    `json:",omitempty"`
 	LinkInputConfig        []string  `json:",omitempty"`
 	LinkInputPackageFiles  []string  `json:",omitempty"`
 	LinkInputPackageMain   string    `json:",omitempty"`
 	LinkInputPackageShlibs []string  `json:",omitempty"`
-	LinkInputOther         []string  `json:",omitempty"`
 	BuildID                string    `json:",omitempty"`
 	CacheResult            string    `json:",omitempty"`
 	TimeReady              time.Time `json:",omitempty"`
@@ -209,14 +209,14 @@ func recordLinkInputs(j *actionJSON) {
 		return
 	}
 
-	inputs := strings.TrimSuffix(j.ActionIDInputs, "\n")
+	inputs := strings.TrimRight(j.ActionIDInputs, "\n")
 	if inputs == "" {
 		return
 	}
 	for _, line := range strings.Split(inputs, "\n") {
 		switch {
 		case line == "link" || line == "linkShared":
-			j.LinkInputConfig = append(j.LinkInputConfig, line)
+			j.LinkInputMode = line
 		case strings.HasPrefix(line, "packagefile "):
 			j.LinkInputPackageFiles = append(j.LinkInputPackageFiles, line)
 		case strings.HasPrefix(line, "packagemain "):
@@ -224,7 +224,7 @@ func recordLinkInputs(j *actionJSON) {
 		case strings.HasPrefix(line, "packageshlib "):
 			j.LinkInputPackageShlibs = append(j.LinkInputPackageShlibs, line)
 		default:
-			j.LinkInputOther = append(j.LinkInputOther, line)
+			j.LinkInputConfig = append(j.LinkInputConfig, line)
 		}
 	}
 }
