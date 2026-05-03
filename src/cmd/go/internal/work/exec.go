@@ -1522,13 +1522,18 @@ func linkInputReuseModeForPackage(p *load.Package) linkInputReuseMode {
 func (b *Builder) writeLinkImportcfg(a *Action, file string) error {
 	// Prepare Go import cfg.
 	var icfg bytes.Buffer
-	for _, a1 := range collectLinkInputs(a.Deps).all {
+	inputs := collectLinkInputs(a.Deps)
+	for _, a1 := range inputs.all {
 		p1 := a1.Package
 		fmt.Fprintf(&icfg, "packagefile %s=%s\n", p1.ImportPath, a1.built)
 		if p1.Shlib != "" {
 			fmt.Fprintf(&icfg, "packageshlib %s=%s\n", p1.ImportPath, p1.Shlib)
 		}
-		fmt.Fprintf(&icfg, "packagereuse %s=%s\n", p1.ImportPath, linkInputReuseModeForPackage(p1))
+	}
+	for _, group := range [][]*Action{inputs.baseline, inputs.overlay} {
+		for _, a1 := range group {
+			fmt.Fprintf(&icfg, "packagereuse %s=%s\n", a1.Package.ImportPath, linkInputReuseModeForPackage(a1.Package))
+		}
 	}
 	info := ""
 	if a.Package.Internal.BuildInfo != nil {
