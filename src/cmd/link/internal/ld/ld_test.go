@@ -88,7 +88,12 @@ func TestReadImportCfgPackageReuse(t *testing.T) {
 
 	dir := t.TempDir()
 	importcfg := filepath.Join(dir, "importcfg")
-	if err := os.WriteFile(importcfg, []byte("packagefile fmt=/goroot/pkg/fmt.a\npackagereuse fmt=baseline\npackagefile example.com/mod=/tmp/mod.a\npackagereuse example.com/mod=overlay\n"), 0666); err != nil {
+	const importcfgText = `packagefile fmt=/goroot/pkg/fmt.a
+packagereuse fmt=baseline
+packagefile example.com/mod=/tmp/mod.a
+packagereuse example.com/mod=overlay
+`
+	if err := os.WriteFile(importcfg, []byte(importcfgText), 0666); err != nil {
 		t.Fatal(err)
 	}
 
