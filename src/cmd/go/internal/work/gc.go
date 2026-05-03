@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"cmd/go/internal/base"
+	"cmd/go/internal/cache"
 	"cmd/go/internal/cfg"
 	"cmd/go/internal/fips140"
 	"cmd/go/internal/fsys"
@@ -632,8 +633,14 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	if err != nil {
 		return err
 	}
-	baselineSnapshotPath := linkBaselineSnapshotPath(b, root, ldflags)
-	ldflags = append(ldflags, "-baselinesnapshot="+baselineSnapshotPath)
+	var baselineSnapshotID cache.ActionID
+	var baselineSnapshotPath string
+	if canCacheLinkBaselineSnapshot(root, ldflags) {
+		baselineSnapshotID = b.linkBaselineSnapshotID(root)
+		baselineSnapshotPath = linkBaselineSnapshotPath(root)
+		restoreLinkBaselineSnapshotCache(b, root, baselineSnapshotID, baselineSnapshotPath)
+		ldflags = append(ldflags, "-baselinesnapshot="+baselineSnapshotPath)
+	}
 
 	// On OS X when using external linking to build a shared library,
 	// the argument passed here to -o ends up recorded in the final
@@ -658,24 +665,76 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	} else {
 		env = append(env, "GOROOT="+cfg.GOROOT)
 	}
-	return b.Shell(root).run(dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags, mainpkg)
+	if err := b.Shell(root).run(dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags, mainpkg); err != nil {
+		return err
+	}
+	if baselineSnapshotPath != "" {
+		storeLinkBaselineSnapshotCache(baselineSnapshotID, baselineSnapshotPath)
+	}
+	return nil
 }
 
-func linkBaselineSnapshotPath(b *Builder, root *Action, ldflags []string) string {
+func (b *Builder) linkBaselineSnapshotID(root *Action) cache.ActionID {
 	h := sha256.New()
-	fmt.Fprintf(h, "goroot=%s\n", cfg.GOROOT)
-	fmt.Fprintf(h, "goos=%s\n", cfg.Goos)
-	fmt.Fprintf(h, "goarch=%s\n", cfg.Goarch)
-	fmt.Fprintf(h, "goexperiment=%s\n", buildcfg.Experiment.String())
-	fmt.Fprintf(h, "buildmode=%s\n", ldBuildmode)
-	fmt.Fprintf(h, "trimpath=%t\n", cfg.BuildTrimpath)
-	for _, flag := range ldflags {
-		fmt.Fprintf(h, "ldflag=%s\n", flag)
+	fmt.Fprintf(h, "link-baseline-snapshot\n")
+	fmt.Fprintf(h, "buildmode %s goos %s goarch %s\n", cfg.BuildBuildmode, cfg.Goos, cfg.Goarch)
+	if cfg.BuildTrimpath {
+		fmt.Fprintln(h, "trimpath")
 	}
-	if root.Package != nil {
-		fmt.Fprintf(h, "cxx=%t\n", len(root.Package.CXXFiles) > 0 || len(root.Package.SwigCXXFiles) > 0)
+	b.printLinkerConfig(h, root.Package)
+	var id cache.ActionID
+	copy(id[:], h.Sum(nil))
+	return id
+}
+
+func linkBaselineSnapshotPath(root *Action) string {
+	return filepath.Join(root.Objdir, "linker-baseline-snapshot.gob")
+}
+
+func canCacheLinkBaselineSnapshot(root *Action, ldflags []string) bool {
+	if root == nil || root.Package == nil {
+		return false
 	}
-	return filepath.Join(b.WorkDir, fmt.Sprintf("linker-baseline-snapshot-%x.gob", h.Sum(nil)))
+	if cfg.BuildLinkshared || platform.MustLinkExternal(cfg.Goos, cfg.Goarch, false) {
+		return false
+	}
+	switch cfg.BuildBuildmode {
+	case "c-shared", "plugin", "shared":
+		return false
+	}
+	for i := 0; i < len(ldflags); i++ {
+		switch ldflags[i] {
+		case "-linkmode=external":
+			return false
+		case "-linkmode":
+			if i+1 < len(ldflags) && ldflags[i+1] == "external" {
+				return false
+			}
+		}
+	}
+	for _, dep := range root.Deps {
+		if p := dep.Package; p != nil && (len(p.CgoFiles) > 0 || len(p.SwigFiles) > 0 || len(p.SwigCXXFiles) > 0) {
+			return false
+		}
+	}
+	return true
+}
+
+func restoreLinkBaselineSnapshotCache(b *Builder, root *Action, id cache.ActionID, dst string) {
+	file, _, err := cache.GetFile(cache.Default(), id)
+	if err != nil {
+		return
+	}
+	_ = b.Shell(root).CopyFile(dst, file, 0666, true)
+}
+
+func storeLinkBaselineSnapshotCache(id cache.ActionID, path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _, _ = cache.PutNoVerify(cache.Default(), id, f)
 }
 
 func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action, targetPath, importcfg string, allactions []*Action) error {
