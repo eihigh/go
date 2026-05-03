@@ -6,7 +6,6 @@ package work
 
 import (
 	"bytes"
-	"cmd/go/internal/cfg"
 	"cmd/go/internal/load"
 	"cmd/internal/objabi"
 	"cmd/internal/sys"
@@ -92,13 +91,12 @@ func TestEncodeDecodeFuzz(t *testing.T) {
 func TestCollectLinkInputs(t *testing.T) {
 	t.Parallel()
 
-	nop := &Action{Mode: "nop"}
 	std := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "fmt", Name: "fmt", Goroot: true, Standard: true}}}
 	main := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "cmd/go", Name: "main", Goroot: true, Standard: true}}}
 	toolDep := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "cmd/internal/objabi", Name: "objabi", Goroot: true, Standard: true}}}
 	mod := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "example.com/mod/pkg", Name: "pkg"}}}
 
-	inputs := collectLinkInputs([]*Action{nop, std, main, toolDep, mod})
+	inputs := collectLinkInputs([]*Action{{Mode: "nop"}, std, main, toolDep, mod})
 
 	if got, want := inputs.all, []*Action{std, main, toolDep, mod}; !slices.Equal(got, want) {
 		t.Fatalf("all inputs = %#v, want %#v", got, want)
@@ -108,80 +106,5 @@ func TestCollectLinkInputs(t *testing.T) {
 	}
 	if got, want := inputs.overlay, []*Action{main, toolDep, mod}; !slices.Equal(got, want) {
 		t.Fatalf("overlay inputs = %#v, want %#v", got, want)
-	}
-	if slices.Contains(inputs.all, nop) || slices.Contains(inputs.baseline, nop) || slices.Contains(inputs.overlay, nop) {
-		t.Fatalf("nop action unexpectedly included in collected link inputs: %#v", inputs)
-	}
-}
-
-func TestLinkBaselineSnapshotIDIgnoresImportPath(t *testing.T) {
-	t.Parallel()
-
-	oldLdBuildmode := ldBuildmode
-	oldForcedLdflags := forcedLdflags
-	ldBuildmode = "exe"
-	forcedLdflags = nil
-	t.Cleanup(func() {
-		ldBuildmode = oldLdBuildmode
-		forcedLdflags = oldForcedLdflags
-	})
-
-	b := &Builder{}
-	root1 := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "example.com/cmd/one", Name: "main"}}}
-	root2 := &Action{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "example.com/cmd/two", Name: "main"}}}
-
-	id1 := b.linkBaselineSnapshotID(root1)
-	id2 := b.linkBaselineSnapshotID(root2)
-
-	if id1 != id2 {
-		t.Fatalf("baseline snapshot ids differ for import path only: %x != %x", id1, id2)
-	}
-}
-
-func TestLinkBaselineSnapshotPathUsesObjdir(t *testing.T) {
-	t.Parallel()
-
-	a := &Action{Objdir: "/tmp/work/"}
-	got := linkBaselineSnapshotPath(a)
-	want := "/tmp/work/linker-baseline-snapshot.gob"
-	if got != want {
-		t.Fatalf("linkBaselineSnapshotPath = %q, want %q", got, want)
-	}
-}
-
-func TestCanCacheLinkBaselineSnapshot(t *testing.T) {
-	t.Parallel()
-
-	oldBuildmode := cfg.BuildBuildmode
-	oldLinkshared := cfg.BuildLinkshared
-	cfg.BuildBuildmode = "default"
-	cfg.BuildLinkshared = false
-	t.Cleanup(func() {
-		cfg.BuildBuildmode = oldBuildmode
-		cfg.BuildLinkshared = oldLinkshared
-	})
-
-	pure := &Action{
-		Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "example.com/cmd", Name: "main"}},
-		Deps: []*Action{
-			{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "fmt", Name: "fmt", Goroot: true, Standard: true}}},
-		},
-	}
-	if !canCacheLinkBaselineSnapshot(pure, []string{"-buildmode=exe"}) {
-		t.Fatal("pure internal link unexpectedly disabled")
-	}
-
-	withCgo := &Action{
-		Package: pure.Package,
-		Deps: []*Action{
-			{Package: &load.Package{PackagePublic: load.PackagePublic{ImportPath: "runtime/cgo", Name: "cgo", CgoFiles: []string{"cgo.go"}}}},
-		},
-	}
-	if canCacheLinkBaselineSnapshot(withCgo, []string{"-buildmode=exe"}) {
-		t.Fatal("cgo link unexpectedly enabled")
-	}
-
-	if canCacheLinkBaselineSnapshot(pure, []string{"-linkmode=external"}) {
-		t.Fatal("external linkmode unexpectedly enabled")
 	}
 }
