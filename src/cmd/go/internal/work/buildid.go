@@ -424,6 +424,7 @@ func (b *Builder) useCache(a *Action, actionHash cache.ActionID, target string, 
 	if a.json != nil {
 		a.json.ActionID = actionID
 		a.json.ActionIDInputs = cache.DebugHashInput(actionHash)
+		recordLinkInputs(a.json)
 	}
 	contentID := actionID // temporary placeholder, likely unique
 	a.buildID = actionID + buildIDSeparator + contentID

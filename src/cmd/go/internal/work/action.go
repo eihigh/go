@@ -182,6 +182,11 @@ type actionJSON struct {
 	NeedBuild      bool      `json:",omitempty"`
 	ActionID       string    `json:",omitempty"`
 	ActionIDInputs string    `json:",omitempty"`
+	LinkInputConfig       []string  `json:",omitempty"`
+	LinkInputPackageFiles []string  `json:",omitempty"`
+	LinkInputPackageMain  string    `json:",omitempty"`
+	LinkInputPackageShlibs []string `json:",omitempty"`
+	LinkInputOther        []string  `json:",omitempty"`
 	BuildID        string    `json:",omitempty"`
 	CacheResult    string    `json:",omitempty"`
 	TimeReady      time.Time `json:",omitempty"`
@@ -192,6 +197,35 @@ type actionJSON struct {
 	CmdReal time.Duration `json:",omitempty"`
 	CmdUser time.Duration `json:",omitempty"`
 	CmdSys  time.Duration `json:",omitempty"`
+}
+
+func recordLinkInputs(j *actionJSON) {
+	if j == nil {
+		return
+	}
+	switch j.Mode {
+	case "link", "linkShared":
+	default:
+		return
+	}
+
+	for _, line := range strings.Split(strings.TrimSuffix(j.ActionIDInputs, "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		switch {
+		case line == "link" || line == "linkShared":
+			j.LinkInputConfig = append(j.LinkInputConfig, line)
+		case strings.HasPrefix(line, "packagefile "):
+			j.LinkInputPackageFiles = append(j.LinkInputPackageFiles, line)
+		case strings.HasPrefix(line, "packagemain "):
+			j.LinkInputPackageMain = strings.TrimPrefix(line, "packagemain ")
+		case strings.HasPrefix(line, "packageshlib "):
+			j.LinkInputPackageShlibs = append(j.LinkInputPackageShlibs, line)
+		default:
+			j.LinkInputOther = append(j.LinkInputOther, line)
+		}
+	}
 }
 
 // cacheKey is the key for the action cache.
