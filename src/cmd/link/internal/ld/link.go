@@ -106,6 +106,7 @@ type Link struct {
 
 	loader  *loader.Loader
 	cgodata []cgodata // cgo directives to load, three strings are args for loadcgo
+	loadlibCache *loadlibCache
 
 	datap  []loader.Sym
 	dynexp []loader.Sym

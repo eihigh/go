@@ -7,8 +7,10 @@ package ld
 import (
 	"bytes"
 	"debug/pe"
+	"encoding/json"
 	"fmt"
 	"internal/testenv"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -77,6 +79,100 @@ func TestUndefinedRelocErrors(t *testing.T) {
 	for unexpected, n := range unexpectedErrors {
 		t.Errorf("unexpected error: %s (x%d)", unexpected, n)
 	}
+}
+
+func TestParseCachedArchive(t *testing.T) {
+	testenv.MustHaveGoBuild(t)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/cachetest\n\ngo 1.24\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "p.go"), []byte("package cachetest\n\nfunc F() int { return 1 }\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	pkgfile := filepath.Join(dir, "cachetest.a")
+	cmd := testenv.Command(t, testenv.GoToolPath(t), "build", "-buildmode=archive", "-o", pkgfile, ".")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build failed: %v\n%s", err, out)
+	}
+	archive, ok := parseCachedArchive(pkgfile)
+	if !ok {
+		t.Fatalf("parseCachedArchive(%q) failed", pkgfile)
+	}
+	if len(archive.members) == 0 {
+		t.Fatalf("parseCachedArchive(%q) returned no members", pkgfile)
+	}
+}
+
+func TestDebugLinkServer(t *testing.T) {
+	testenv.MustHaveGoBuild(t)
+	testenv.MustHaveExec(t)
+
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "linkserver.json")
+	source := `package main
+
+import "fmt"
+
+func main() { fmt.Println("hello") }
+`
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/linkserver\n\ngo 1.24\n"), 0666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(source), 0666); err != nil {
+		t.Fatal(err)
+	}
+
+	goTool := testenv.GoToolPath(t)
+	build := func() {
+		cmd := testenv.Command(t, goTool, "build", "-debug-linkserver="+stateFile, "-o", filepath.Join(dir, "hello.exe"), ".")
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("go build failed: %v\n%s", err, out)
+		}
+	}
+
+	build()
+	state1 := readLinkServiceStateForTest(t, stateFile)
+	build()
+	state2 := readLinkServiceStateForTest(t, stateFile)
+	if state1.Addr == "" || state1.PID == 0 {
+		t.Fatalf("unexpected link server state after first build: %+v", state1)
+	}
+	if state1 != state2 {
+		t.Fatalf("link server state changed across rebuilds: before=%+v after=%+v", state1, state2)
+	}
+
+	resp, err := http.Get(state1.Addr + "/healthz")
+	if err != nil {
+		t.Fatalf("link server health check failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if proc, err := os.FindProcess(state1.PID); err == nil {
+		_ = proc.Kill()
+	}
+}
+
+type debugLinkServerState struct {
+	Addr string `json:"addr"`
+	PID  int    `json:"pid"`
+}
+
+func readLinkServiceStateForTest(t *testing.T, file string) debugLinkServerState {
+	t.Helper()
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state debugLinkServerState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	return state
 }
 
 const carchiveSrcText = `

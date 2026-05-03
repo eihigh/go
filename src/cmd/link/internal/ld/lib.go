@@ -1081,6 +1081,14 @@ func loadobjfile(ctxt *Link, lib *sym.Library) {
 	if ctxt.Debugvlog > 1 {
 		ctxt.Logf("ldobj: %s (%s)\n", lib.File, pkg)
 	}
+	if ctxt.loadlibCache != nil && ctxt.loadlibCache.load(ctxt, lib) {
+		defer func() {
+			if pkg == "main" && !lib.Main {
+				Exitf("%s: not package main", lib.File)
+			}
+		}()
+		return
+	}
 	f, err := bio.Open(lib.File)
 	if err != nil {
 		Exitf("cannot open file %s: %v", lib.File, err)

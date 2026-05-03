@@ -12,6 +12,7 @@ import (
 )
 
 var atExitFuncs []func()
+var exitHook func(int)
 
 func AtExit(f func()) {
 	atExitFuncs = append(atExitFuncs, f)
@@ -28,6 +29,10 @@ func runAtExitFuncs() {
 // Exit exits with code after executing all atExitFuncs.
 func Exit(code int) {
 	runAtExitFuncs()
+	if exitHook != nil {
+		exitHook(code)
+		return
+	}
 	os.Exit(code)
 }
 

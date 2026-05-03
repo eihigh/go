@@ -45,6 +45,10 @@ func ldpkg(ctxt *Link, f *bio.Reader, lib *sym.Library, length int64, filename s
 		fmt.Fprintf(os.Stderr, "%s: short pkg read %s\n", os.Args[0], filename)
 		return
 	}
+	ldpkgData(ctxt, lib, bdata, filename)
+}
+
+func ldpkgData(ctxt *Link, lib *sym.Library, bdata []byte, filename string) {
 	data := string(bdata)
 
 	// process header lines

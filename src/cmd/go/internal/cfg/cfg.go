@@ -103,6 +103,7 @@ var (
 	CmdName string // "build", "install", "list", "mod tidy", etc.
 
 	DebugActiongraph  string // -debug-actiongraph flag (undocumented, unstable)
+	DebugLinkServer   string // -debug-linkserver flag (undocumented, unstable)
 	DebugTrace        string // -debug-trace flag
 	DebugRuntimeTrace string // -debug-runtime-trace flag (undocumented, unstable)
 

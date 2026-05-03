@@ -652,6 +652,9 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	} else {
 		env = append(env, "GOROOT="+cfg.GOROOT)
 	}
+	if cfg.DebugLinkServer != "" && len(cfg.BuildToolexec) == 0 {
+		return b.Shell(root).run(dir, root.Package.ImportPath, env, base.Tool("gofast"), "link", "-statefile", cfg.DebugLinkServer, "--", "-o", targetPath, "-importcfg", importcfg, ldflags, mainpkg)
+	}
 	return b.Shell(root).run(dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags, mainpkg)
 }
 

@@ -2141,10 +2141,18 @@ func (l *Loader) Preload(localSymVersion int, f *bio.Reader, lib *sym.Library, u
 	if err != nil {
 		log.Fatal("cannot read object file:", err)
 	}
+	fingerprint := l.PreloadFromBytes(localSymVersion, roObject, readonly, lib, unit)
+
+	// The caller expects us consuming all the data.
+	f.MustSeek(length, io.SeekCurrent)
+	return fingerprint
+}
+
+func (l *Loader) PreloadFromBytes(localSymVersion int, roObject []byte, readonly bool, lib *sym.Library, unit *sym.CompilationUnit) goobj.FingerprintType {
 	r := goobj.NewReaderFromBytes(roObject, readonly)
 	if r == nil {
 		if len(roObject) >= 8 && bytes.Equal(roObject[:8], []byte("\x00go114ld")) {
-			log.Fatalf("found object file %s in old format", f.File().Name())
+			log.Fatalf("found object file in old format (from package %s)", lib.Pkg)
 		}
 		panic("cannot read object file")
 	}
@@ -2179,10 +2187,6 @@ func (l *Loader) Preload(localSymVersion int, f *bio.Reader, lib *sym.Library, u
 	}
 
 	l.addObj(lib.Pkg, or)
-
-	// The caller expects us consuming all the data
-	f.MustSeek(length, io.SeekCurrent)
-
 	return r.Fingerprint()
 }
 

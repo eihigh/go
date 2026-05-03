@@ -46,6 +46,7 @@ import (
 	"runtime/pprof"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var (
@@ -118,6 +119,16 @@ var (
 
 	flagW ternaryFlag
 	FlagW = new(bool) // the -w flag, computed in main from flagW
+
+	flagHeadType       = flag.String("H", "", "set header `type`")
+	flagLinkshared     bool
+	flagLinkmode       LinkMode
+	flagBuildmode      BuildMode
+	flagCompressDWARF  = true
+	flagDebugvlog      int
+	currentFlagContext *Link
+	currentLoadlibCache *loadlibCache
+	setupFlagsOnce     sync.Once
 )
 
 // ternaryFlag is like a boolean flag, but has a default value that is
@@ -157,16 +168,95 @@ func (t *ternaryFlag) String() string {
 
 func (t *ternaryFlag) IsBoolFlag() bool { return true } // parse like a boolean flag
 
+func initCommandFlags() {
+	setupFlagsOnce.Do(func() {
+		if buildcfg.GOARCH == "amd64" && buildcfg.GOOS == "plan9" {
+			flag.BoolVar(&flag8, "8", false, "use 64-bit addresses in symbol table")
+		}
+		flag.BoolVar(&flagLinkshared, "linkshared", false, "link against installed Go shared libraries")
+		flag.Var(&flagLinkmode, "linkmode", "set link `mode`")
+		flag.Var(&flagBuildmode, "buildmode", "set build `mode`")
+		flag.BoolVar(&flagCompressDWARF, "compressdwarf", true, "compress DWARF if possible")
+		objabi.Flagfn1("L", "add specified `directory` to library path", func(a string) { Lflag(currentFlagContext, a) })
+		objabi.AddVersionFlag()
+		objabi.Flagfn1("X", "add string value `definition` of the form importpath.name=value", func(s string) { addstrdata1(currentFlagContext, s) })
+		objabi.Flagcount("v", "print link trace", &flagDebugvlog)
+		objabi.Flagfn1("importcfg", "read import configuration from `file`", func(a string) { currentFlagContext.readImportCfg(a) })
+	})
+}
+
+func resetFlagDefaults() {
+	*flagBuildid = ""
+	*flagBindNow = false
+	*flagOutfile = ""
+	*flagPluginPath = ""
+	*flagFipso = ""
+	*flagInstallSuffix = ""
+	*flagDumpDep = false
+	*flagRace = false
+	*flagMsan = false
+	*flagAsan = false
+	*flagAslr = true
+	*flagFieldTrack = ""
+	*flagLibGCC = ""
+	*flagTmpdir = ""
+	flagExtld = nil
+	flagExtldflags = nil
+	*flagExtar = ""
+	*flagCaptureHostObjs = ""
+	*flagA = false
+	*FlagC = false
+	*FlagD = false
+	*flagF = false
+	*flagG = false
+	*flagH = false
+	*flagN = false
+	*FlagS = false
+	flag8 = false
+	*flagHostBuildid = ""
+	*flagInterpreter = ""
+	*flagCheckLinkname = true
+	*FlagDebugTramp = 0
+	*FlagDebugTextSize = 0
+	*flagDebugNosplit = false
+	*FlagStrictDups = 0
+	*FlagRound = -1
+	*FlagTextAddr = -1
+	*FlagFuncAlign = 0
+	*flagEntrySymbol = ""
+	*flagPruneWeakMap = true
+	*flagRandLayout = 0
+	*flagAllErrors = false
+	*cpuprofile = ""
+	*memprofile = ""
+	*memprofilerate = 0
+	*benchmarkFlag = ""
+	*benchmarkFileFlag = ""
+	flagW = ternaryFlagUnset
+	*FlagW = false
+	*flagHeadType = ""
+	flagLinkshared = false
+	flagLinkmode = LinkAuto
+	flagBuildmode = BuildModeUnset
+	flagCompressDWARF = true
+	flagDebugvlog = 0
+	rpath = Rpath{}
+}
+
 // Main is the main entry point for the linker code.
 func Main(arch *sys.Arch, theArch Arch) {
 	log.SetPrefix("link: ")
 	log.SetFlags(0)
 	counter.Open()
 	counter.Inc("link/invocations")
+	initCommandFlags()
+	resetFlagDefaults()
 
 	thearch = theArch
 	ctxt := linknew(arch)
 	ctxt.Bso = bufio.NewWriter(os.Stdout)
+	ctxt.loadlibCache = currentLoadlibCache
+	currentFlagContext = ctxt
 
 	// For testing behavior of go command when tools crash silently.
 	// Undocumented, not in standard flag parser to avoid
@@ -191,23 +281,13 @@ func Main(arch *sys.Arch, theArch Arch) {
 	}
 	addstrdata1(ctxt, "runtime.buildVersion="+buildVersion)
 
-	// TODO(matloob): define these above and then check flag values here
-	if ctxt.Arch.Family == sys.AMD64 && buildcfg.GOOS == "plan9" {
-		flag.BoolVar(&flag8, "8", false, "use 64-bit addresses in symbol table")
-	}
-	flagHeadType := flag.String("H", "", "set header `type`")
-	flag.BoolVar(&ctxt.linkShared, "linkshared", false, "link against installed Go shared libraries")
-	flag.Var(&ctxt.LinkMode, "linkmode", "set link `mode`")
-	flag.Var(&ctxt.BuildMode, "buildmode", "set build `mode`")
-	flag.BoolVar(&ctxt.compressDWARF, "compressdwarf", true, "compress DWARF if possible")
-	objabi.Flagfn1("L", "add specified `directory` to library path", func(a string) { Lflag(ctxt, a) })
-	objabi.AddVersionFlag() // -V
-	objabi.Flagfn1("X", "add string value `definition` of the form importpath.name=value", func(s string) { addstrdata1(ctxt, s) })
-	objabi.Flagcount("v", "print link trace", &ctxt.Debugvlog)
-	objabi.Flagfn1("importcfg", "read import configuration from `file`", ctxt.readImportCfg)
-
 	objabi.Flagparse(usage)
 	counter.CountFlags("link/flag:", *flag.CommandLine)
+	ctxt.linkShared = flagLinkshared
+	ctxt.LinkMode = flagLinkmode
+	ctxt.BuildMode = flagBuildmode
+	ctxt.compressDWARF = flagCompressDWARF
+	ctxt.Debugvlog = flagDebugvlog
 
 	if ctxt.Debugvlog > 0 {
 		// dump symbol info on crash

@@ -1391,13 +1391,13 @@ func toolenv() []string {
 }
 
 var (
-	toolchain = []string{"cmd/asm", "cmd/cgo", "cmd/compile", "cmd/link", "cmd/preprofile"}
+	toolchain = []string{"cmd/asm", "cmd/cgo", "cmd/compile", "cmd/gofast", "cmd/link", "cmd/preprofile"}
 
 	// Keep in sync with binExes in cmd/distpack/pack.go.
 	binExesIncludedInDistpack = []string{"cmd/go", "cmd/gofmt"}
 
 	// Keep in sync with the filter in cmd/distpack/pack.go.
-	toolsIncludedInDistpack = []string{"cmd/asm", "cmd/cgo", "cmd/compile", "cmd/cover", "cmd/link", "cmd/preprofile", "cmd/vet"}
+	toolsIncludedInDistpack = []string{"cmd/asm", "cmd/cgo", "cmd/compile", "cmd/cover", "cmd/gofast", "cmd/link", "cmd/preprofile", "cmd/vet"}
 
 	// We could install all tools in "cmd", but is unnecessary because we will
 	// remove them in distpack, so instead install the tools that will actually
