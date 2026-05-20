@@ -284,6 +284,7 @@ func resetLinkerState() {
 	strdata = make(map[string]string)
 	strnames = nil
 
+	resetDwarfState()
 	registerFlags()
 }
 
