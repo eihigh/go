@@ -69,5 +69,12 @@ func main() {
 	case "wasm":
 		arch, theArch = wasm.Init()
 	}
+	if len(os.Args) == 3 && os.Args[1] == "-debug-linkserver" {
+		if err := runLinkServer(os.Args[2], arch, theArch); err != nil {
+			fmt.Fprintf(os.Stderr, "link: debug link server: %v\n", err)
+			os.Exit(2)
+		}
+		return
+	}
 	ld.Main(arch, theArch)
 }

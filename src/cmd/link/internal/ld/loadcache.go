@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"cmd/internal/bio"
 	"cmd/internal/goobj"
-	"internal/buildcfg"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,14 +40,14 @@ type archiveTemplateCacheEntry struct {
 	cacheable bool
 }
 
-var gorootArchiveTemplateCache sync.Map
+var archiveTemplateCache sync.Map
 
 func clearGOROOTArchiveTemplateCacheForTest() {
-	gorootArchiveTemplateCache = sync.Map{}
+	archiveTemplateCache = sync.Map{}
 }
 
 func maybeLoadArchiveTemplate(ctxt *Link, lib *sym.Library) bool {
-	tmpl, ok := gorootArchiveTemplate(lib)
+	tmpl, ok := cachedArchiveTemplate(lib)
 	if !ok {
 		return false
 	}
@@ -80,8 +79,8 @@ func loadobjfileTemplate(ctxt *Link, lib *sym.Library, tmpl *archiveTemplate) {
 	}
 }
 
-func gorootArchiveTemplate(lib *sym.Library) (*archiveTemplate, bool) {
-	if !canCacheGOROOTArchive(lib) {
+func cachedArchiveTemplate(lib *sym.Library) (*archiveTemplate, bool) {
+	if !canCacheArchive(lib) {
 		return nil, false
 	}
 	info, err := os.Stat(lib.File)
@@ -93,7 +92,7 @@ func gorootArchiveTemplate(lib *sym.Library) (*archiveTemplate, bool) {
 		size:    info.Size(),
 		modTime: info.ModTime().UnixNano(),
 	}
-	entryValue, _ := gorootArchiveTemplateCache.LoadOrStore(key, &archiveTemplateCacheEntry{})
+	entryValue, _ := archiveTemplateCache.LoadOrStore(key, &archiveTemplateCacheEntry{})
 	entry := entryValue.(*archiveTemplateCacheEntry)
 	entry.once.Do(func() {
 		entry.template, entry.cacheable = readArchiveTemplate(lib.File)
@@ -101,16 +100,14 @@ func gorootArchiveTemplate(lib *sym.Library) (*archiveTemplate, bool) {
 	return entry.template, entry.cacheable
 }
 
-func canCacheGOROOTArchive(lib *sym.Library) bool {
+func canCacheArchive(lib *sym.Library) bool {
 	if lib == nil || lib.Shlib != "" || lib.File == "" || lib.Pkg == "runtime/cgo" || lib.Pkg == "main" {
 		return false
 	}
 	if filepath.Ext(lib.File) != ".a" {
 		return false
 	}
-	gorootPkg := filepath.Join(buildcfg.GOROOT, "pkg") + string(os.PathSeparator)
-	file := filepath.Clean(lib.File)
-	return strings.HasPrefix(file, gorootPkg)
+	return true
 }
 
 func readArchiveTemplate(file string) (*archiveTemplate, bool) {

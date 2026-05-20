@@ -38,6 +38,7 @@ import (
 	"cmd/internal/sys"
 	"cmd/internal/telemetry/counter"
 	"cmd/link/internal/benchmark"
+	"cmd/link/internal/sym"
 	"flag"
 	"internal/buildcfg"
 	"log"
@@ -54,71 +55,119 @@ var (
 	ownTmpDir      bool // set to true if tmp dir created by linker (e.g. no -tmpdir)
 )
 
-func init() {
-	flag.Var(&rpath, "r", "set the ELF dynamic linker search `path` to dir1:dir2:...")
-	flag.Var(&flagExtld, "extld", "use `linker` when linking in external mode")
-	flag.Var(&flagExtldflags, "extldflags", "pass `flags` to external linker")
-	flag.Var(&flagW, "w", "disable DWARF generation")
-}
-
 // Flags used by the linker. The exported flags are used by the architecture-specific packages.
 var (
-	flagBuildid = flag.String("buildid", "", "record `id` as Go toolchain build id")
-	flagBindNow = flag.Bool("bindnow", false, "mark a dynamically linked ELF object for immediate function binding")
+	flagBuildid *string
+	flagBindNow *bool
 
-	flagOutfile    = flag.String("o", "", "write output to `file`")
-	flagPluginPath = flag.String("pluginpath", "", "full path name for plugin")
-	flagFipso      = flag.String("fipso", "", "write fips module to `file`")
+	flagOutfile    *string
+	flagPluginPath *string
+	flagFipso      *string
 
-	flagInstallSuffix = flag.String("installsuffix", "", "set package directory `suffix`")
-	flagDumpDep       = flag.Bool("dumpdep", false, "dump symbol dependency graph")
-	flagRace          = flag.Bool("race", false, "enable race detector")
-	flagMsan          = flag.Bool("msan", false, "enable MSan interface")
-	flagAsan          = flag.Bool("asan", false, "enable ASan interface")
-	flagAslr          = flag.Bool("aslr", true, "enable ASLR for buildmode=c-shared on windows")
+	flagInstallSuffix *string
+	flagDumpDep       *bool
+	flagRace          *bool
+	flagMsan          *bool
+	flagAsan          *bool
+	flagAslr          *bool
 
-	flagFieldTrack = flag.String("k", "", "set field tracking `symbol`")
-	flagLibGCC     = flag.String("libgcc", "", "compiler support lib for internal linking; use \"none\" to disable")
-	flagTmpdir     = flag.String("tmpdir", "", "use `directory` for temporary files")
+	flagFieldTrack *string
+	flagLibGCC     *string
+	flagTmpdir     *string
 
 	flagExtld      quoted.Flag
 	flagExtldflags quoted.Flag
-	flagExtar      = flag.String("extar", "", "archive program for buildmode=c-archive")
+	flagExtar      *string
 
-	flagCaptureHostObjs = flag.String("capturehostobjs", "", "capture host object files loaded during internal linking to specified dir")
+	flagCaptureHostObjs *string
 
-	flagA             = flag.Bool("a", false, "no-op (deprecated)")
-	FlagC             = flag.Bool("c", false, "dump call graph")
-	FlagD             = flag.Bool("d", false, "disable dynamic executable")
-	flagF             = flag.Bool("f", false, "ignore version mismatch")
-	flagG             = flag.Bool("g", false, "disable go package data checks")
-	flagH             = flag.Bool("h", false, "halt on error")
-	flagN             = flag.Bool("n", false, "no-op (deprecated)")
-	FlagS             = flag.Bool("s", false, "disable symbol table")
+	flagA             *bool
+	FlagC             *bool
+	FlagD             *bool
+	flagF             *bool
+	flagG             *bool
+	flagH             *bool
+	flagN             *bool
+	FlagS             *bool
 	flag8             bool // use 64-bit addresses in symbol table
-	flagHostBuildid   = flag.String("B", "", "set ELF NT_GNU_BUILD_ID `note` or Mach-O UUID; use \"gobuildid\" to generate it from the Go build ID; \"none\" to disable")
-	flagInterpreter   = flag.String("I", "", "use `linker` as ELF dynamic linker")
-	flagCheckLinkname = flag.Bool("checklinkname", true, "check linkname symbol references")
-	FlagDebugTramp    = flag.Int("debugtramp", 0, "debug trampolines")
-	FlagDebugTextSize = flag.Int("debugtextsize", 0, "debug text section max size")
-	flagDebugNosplit  = flag.Bool("debugnosplit", false, "dump nosplit call graph")
-	FlagStrictDups    = flag.Int("strictdups", 0, "sanity check duplicate symbol contents during object file reading (1=warn 2=err).")
-	FlagRound         = flag.Int64("R", -1, "set address rounding `quantum`")
-	FlagTextAddr      = flag.Int64("T", -1, "set the start address of text symbols")
-	FlagFuncAlign     = flag.Int("funcalign", 0, "set function align to `N` bytes")
-	flagEntrySymbol   = flag.String("E", "", "set `entry` symbol name")
-	flagPruneWeakMap  = flag.Bool("pruneweakmap", true, "prune weak mapinit refs")
-	flagRandLayout    = flag.Int64("randlayout", 0, "randomize function layout")
-	flagAllErrors     = flag.Bool("e", false, "no limit on number of errors reported")
-	cpuprofile        = flag.String("cpuprofile", "", "write cpu profile to `file`")
-	memprofile        = flag.String("memprofile", "", "write memory profile to `file`")
-	memprofilerate    = flag.Int64("memprofilerate", 0, "set runtime.MemProfileRate to `rate`")
-	benchmarkFlag     = flag.String("benchmark", "", "set to 'mem' or 'cpu' to enable phase benchmarking")
-	benchmarkFileFlag = flag.String("benchmarkprofile", "", "emit phase profiles to `base`_phase.{cpu,mem}prof")
+	flagHostBuildid   *string
+	flagInterpreter   *string
+	flagCheckLinkname *bool
+	FlagDebugTramp    *int
+	FlagDebugTextSize *int
+	flagDebugNosplit  *bool
+	FlagStrictDups    *int
+	FlagRound         *int64
+	FlagTextAddr      *int64
+	FlagFuncAlign     *int
+	flagEntrySymbol   *string
+	flagPruneWeakMap  *bool
+	flagRandLayout    *int64
+	flagAllErrors     *bool
+	cpuprofile        *string
+	memprofile        *string
+	memprofilerate    *int64
+	benchmarkFlag     *string
+	benchmarkFileFlag *string
 
 	flagW ternaryFlag
 	FlagW = new(bool) // the -w flag, computed in main from flagW
 )
+
+func registerFlags() {
+	flag.Var(&rpath, "r", "set the ELF dynamic linker search `path` to dir1:dir2:...")
+	flag.Var(&flagExtld, "extld", "use `linker` when linking in external mode")
+	flag.Var(&flagExtldflags, "extldflags", "pass `flags` to external linker")
+	flag.Var(&flagW, "w", "disable DWARF generation")
+
+	flagBuildid = flag.String("buildid", "", "record `id` as Go toolchain build id")
+	flagBindNow = flag.Bool("bindnow", false, "mark a dynamically linked ELF object for immediate function binding")
+
+	flagOutfile = flag.String("o", "", "write output to `file`")
+	flagPluginPath = flag.String("pluginpath", "", "full path name for plugin")
+	flagFipso = flag.String("fipso", "", "write fips module to `file`")
+
+	flagInstallSuffix = flag.String("installsuffix", "", "set package directory `suffix`")
+	flagDumpDep = flag.Bool("dumpdep", false, "dump symbol dependency graph")
+	flagRace = flag.Bool("race", false, "enable race detector")
+	flagMsan = flag.Bool("msan", false, "enable MSan interface")
+	flagAsan = flag.Bool("asan", false, "enable ASan interface")
+	flagAslr = flag.Bool("aslr", true, "enable ASLR for buildmode=c-shared on windows")
+
+	flagFieldTrack = flag.String("k", "", "set field tracking `symbol`")
+	flagLibGCC = flag.String("libgcc", "", "compiler support lib for internal linking; use \"none\" to disable")
+	flagTmpdir = flag.String("tmpdir", "", "use `directory` for temporary files")
+	flagExtar = flag.String("extar", "", "archive program for buildmode=c-archive")
+	flagCaptureHostObjs = flag.String("capturehostobjs", "", "capture host object files loaded during internal linking to specified dir")
+
+	flagA = flag.Bool("a", false, "no-op (deprecated)")
+	FlagC = flag.Bool("c", false, "dump call graph")
+	FlagD = flag.Bool("d", false, "disable dynamic executable")
+	flagF = flag.Bool("f", false, "ignore version mismatch")
+	flagG = flag.Bool("g", false, "disable go package data checks")
+	flagH = flag.Bool("h", false, "halt on error")
+	flagN = flag.Bool("n", false, "no-op (deprecated)")
+	FlagS = flag.Bool("s", false, "disable symbol table")
+	flagHostBuildid = flag.String("B", "", "set ELF NT_GNU_BUILD_ID `note` or Mach-O UUID; use \"gobuildid\" to generate it from the Go build ID; \"none\" to disable")
+	flagInterpreter = flag.String("I", "", "use `linker` as ELF dynamic linker")
+	flagCheckLinkname = flag.Bool("checklinkname", true, "check linkname symbol references")
+	FlagDebugTramp = flag.Int("debugtramp", 0, "debug trampolines")
+	FlagDebugTextSize = flag.Int("debugtextsize", 0, "debug text section max size")
+	flagDebugNosplit = flag.Bool("debugnosplit", false, "dump nosplit call graph")
+	FlagStrictDups = flag.Int("strictdups", 0, "sanity check duplicate symbol contents during object file reading (1=warn 2=err).")
+	FlagRound = flag.Int64("R", -1, "set address rounding `quantum`")
+	FlagTextAddr = flag.Int64("T", -1, "set the start address of text symbols")
+	FlagFuncAlign = flag.Int("funcalign", 0, "set function align to `N` bytes")
+	flagEntrySymbol = flag.String("E", "", "set `entry` symbol name")
+	flagPruneWeakMap = flag.Bool("pruneweakmap", true, "prune weak mapinit refs")
+	flagRandLayout = flag.Int64("randlayout", 0, "randomize function layout")
+	flagAllErrors = flag.Bool("e", false, "no limit on number of errors reported")
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+	memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+	memprofilerate = flag.Int64("memprofilerate", 0, "set runtime.MemProfileRate to `rate`")
+	benchmarkFlag = flag.String("benchmark", "", "set to 'mem' or 'cpu' to enable phase benchmarking")
+	benchmarkFileFlag = flag.String("benchmarkprofile", "", "emit phase profiles to `base`_phase.{cpu,mem}prof")
+}
 
 // ternaryFlag is like a boolean flag, but has a default value that is
 // neither true nor false, allowing it to be set from context (e.g. from another
@@ -159,6 +208,86 @@ func (t *ternaryFlag) IsBoolFlag() bool { return true } // parse like a boolean 
 
 // Main is the main entry point for the linker code.
 func Main(arch *sys.Arch, theArch Arch) {
+	os.Exit(Run(arch, theArch, os.Args))
+}
+
+type linkExit int
+
+// Run runs one linker invocation and returns its exit status.
+func Run(arch *sys.Arch, theArch Arch, args []string) (code int) {
+	oldArgs := os.Args
+	oldFlagCommandLine := flag.CommandLine
+	oldExit := osExit
+	defer func() {
+		os.Args = oldArgs
+		flag.CommandLine = oldFlagCommandLine
+		osExit = oldExit
+		if r := recover(); r != nil {
+			if exit, ok := r.(linkExit); ok {
+				code = int(exit)
+				return
+			}
+			panic(r)
+		}
+	}()
+
+	os.Args = append([]string(nil), args...)
+	flag.CommandLine = flag.NewFlagSet(args[0], flag.ExitOnError)
+	osExit = func(code int) {
+		panic(linkExit(code))
+	}
+	resetLinkerState()
+	linkMain(arch, theArch)
+	return 0
+}
+
+func resetLinkerState() {
+	atExitFuncs = nil
+	pkglistfornote = nil
+	windowsgui = false
+	ownTmpDir = false
+	rpath = Rpath{}
+	flagExtld = nil
+	flagExtldflags = nil
+	flagW = ternaryFlagUnset
+	*FlagW = false
+	flag8 = false
+
+	dynlib = nil
+	ldflag = nil
+	havedynamic = 0
+	Funcalign = 0
+	iscgo = false
+	elfglobalsymndx = 0
+	interpreter = ""
+	debug_s = false
+	HEADR = 0
+	nerrors = 0
+	liveness = 0
+	checkStrictDups = 0
+	strictDupMsgCount = 0
+	Segtext = sym.Segment{}
+	Segrodata = sym.Segment{}
+	Segrelrodata = sym.Segment{}
+	Segdata = sym.Segment{}
+	Segdwarf = sym.Segment{}
+	Segpdata = sym.Segment{}
+	Segxdata = sym.Segment{}
+	externalobj = false
+	dynimportfail = nil
+	preferlinkext = nil
+	unknownObjFormat = false
+	theline = ""
+	seenlib = make(map[string]bool)
+	covCounterDataStartOff = 0
+	covCounterDataLen = 0
+	strdata = make(map[string]string)
+	strnames = nil
+
+	registerFlags()
+}
+
+func linkMain(arch *sys.Arch, theArch Arch) {
 	log.SetPrefix("link: ")
 	log.SetFlags(0)
 	counter.Open()

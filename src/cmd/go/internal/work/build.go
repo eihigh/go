@@ -356,6 +356,7 @@ func AddBuildFlags(cmd *base.Command, mask BuildFlagMask) {
 
 	// Undocumented, unstable debugging flags.
 	cmd.Flag.StringVar(&cfg.DebugActiongraph, "debug-actiongraph", "", "")
+	cmd.Flag.BoolVar(&cfg.DebugLinkServer, "debug-linkserver", false, "")
 	cmd.Flag.StringVar(&cfg.DebugRuntimeTrace, "debug-runtime-trace", "", "")
 	cmd.Flag.StringVar(&cfg.DebugTrace, "debug-trace", "", "")
 }
