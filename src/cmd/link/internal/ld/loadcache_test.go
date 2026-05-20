@@ -10,6 +10,7 @@ import (
 	"cmd/link/internal/sym"
 	"internal/buildcfg"
 	"internal/testenv"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -50,6 +51,20 @@ func TestArchiveTemplateReplayMatchesLoadobjfile(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("loadobjfile template replay mismatch:\nwant %#v\ngot  %#v", want, got)
+	}
+}
+
+func TestArchiveTemplateCacheAcceptsBuildCacheArchivePath(t *testing.T) {
+	testenv.MustHaveGoBuild(t)
+
+	archive, pkg := buildArchiveTemplateTestPackage(t)
+	buildCacheArchive := filepath.Join(t.TempDir(), "0123456789abcdef-d")
+	copyFile(t, buildCacheArchive, archive)
+
+	clearGOROOTArchiveTemplateCacheForTest()
+	ctxt := newLoadcacheTestContext(t)
+	if !maybeLoadArchiveTemplate(ctxt, &sym.Library{File: buildCacheArchive, Pkg: pkg}) {
+		t.Fatalf("expected cache hit for build cache archive path %s", buildCacheArchive)
 	}
 }
 
@@ -97,6 +112,26 @@ func buildArchiveTemplateTestPackage(t testing.TB) (archive, pkg string) {
 		t.Fatalf("building archive: %v\n%s", err, out)
 	}
 	return archive, pkg
+}
+
+func copyFile(t testing.TB, dst, src string) {
+	t.Helper()
+	in, err := os.Open(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func newLoadcacheTestContext(t testing.TB) *Link {

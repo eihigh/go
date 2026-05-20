@@ -104,7 +104,7 @@ func canCacheArchive(lib *sym.Library) bool {
 	if lib == nil || lib.Shlib != "" || lib.File == "" || lib.Pkg == "runtime/cgo" || lib.Pkg == "main" {
 		return false
 	}
-	if filepath.Ext(lib.File) != ".a" {
+	if filepath.Ext(lib.File) != ".a" && !strings.HasSuffix(filepath.Base(lib.File), "-d") {
 		return false
 	}
 	return true
