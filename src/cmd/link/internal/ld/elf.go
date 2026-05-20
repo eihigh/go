@@ -227,6 +227,21 @@ var nelfstr int
 
 var buildinfo []byte
 
+func resetElfState() {
+	elfstrdat = nil
+	elfshstrdat = nil
+	Nelfsym = 1
+	elf64 = false
+	elfRelType = ""
+	ehdr = ElfEhdr{}
+	phdr = [NSECT]*ElfPhdr{}
+	shdr = [NSECT]*ElfShdr{}
+	interp = ""
+	elfstr = [100]Elfstring{}
+	nelfstr = 0
+	buildinfo = nil
+}
+
 /*
 Initialize the global variable that describes the ELF header. It will be updated as
 we write section and prog headers.

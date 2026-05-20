@@ -288,6 +288,7 @@ func resetLinkerState() {
 	fipsinfo = 0
 
 	resetDwarfState()
+	resetElfState()
 	resetSymtabState()
 	registerFlags()
 }
