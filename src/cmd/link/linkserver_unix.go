@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"sync"
 	"syscall"
 )
@@ -122,7 +123,7 @@ func runLinkServerRequest(req linkServerRequest, arch *sys.Arch, theArch ld.Arch
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintf(w, "panic: %v\n", r)
+				fmt.Fprintf(w, "panic: %v\n%s", r, debug.Stack())
 			}
 		}()
 		code = ld.Run(arch, theArch, req.Args)
