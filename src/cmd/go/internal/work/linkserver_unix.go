@@ -15,11 +15,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -75,7 +75,7 @@ func runLinkServerOut(dir string, env []string, cmdline []string) ([]byte, error
 	if err := ensureDebugLinkServer(cmdline[0], addr); err != nil {
 		return nil, err
 	}
-	conn, err := net.Dial("unix", addr)
+	conn, err := dialDebugLinkServer(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func debugLinkServerAddr(linkTool string) (string, error) {
 }
 
 func ensureDebugLinkServer(linkTool, addr string) error {
-	if conn, err := net.DialTimeout("unix", addr, 100*time.Millisecond); err == nil {
+	if conn, err := dialDebugLinkServer(addr); err == nil {
 		conn.Close()
 		return nil
 	}
@@ -124,7 +124,7 @@ func ensureDebugLinkServer(linkTool, addr string) error {
 	}
 	var lastErr error
 	for i := 0; i < 50; i++ {
-		conn, err := net.DialTimeout("unix", addr, 100*time.Millisecond)
+		conn, err := dialDebugLinkServer(addr)
 		if err == nil {
 			conn.Close()
 			return nil
@@ -138,4 +138,16 @@ func ensureDebugLinkServer(linkTool, addr string) error {
 		fmt.Fprintf(&b, ": %v", lastErr)
 	}
 	return errors.New(b.String())
+}
+
+func dialDebugLinkServer(addr string) (*os.File, error) {
+	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Connect(fd, &syscall.SockaddrUnix{Name: addr}); err != nil {
+		syscall.Close(fd)
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), "linkserver-conn"), nil
 }

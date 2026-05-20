@@ -14,9 +14,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"sync"
+	"syscall"
 )
 
 type linkServerRequest struct {
@@ -34,19 +34,26 @@ func runLinkServer(addr string, arch *sys.Arch, theArch ld.Arch) error {
 	if err := os.Remove(addr); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	ln, err := net.Listen("unix", addr)
+	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer syscall.Close(fd)
 	defer os.Remove(addr)
+	if err := syscall.Bind(fd, &syscall.SockaddrUnix{Name: addr}); err != nil {
+		return err
+	}
+	if err := syscall.Listen(fd, 16); err != nil {
+		return err
+	}
 
 	var mu sync.Mutex
 	for {
-		conn, err := ln.Accept()
+		nfd, _, err := syscall.Accept(fd)
 		if err != nil {
 			return err
 		}
+		conn := os.NewFile(uintptr(nfd), "linkserver-conn")
 		go func() {
 			defer conn.Close()
 			var req linkServerRequest
