@@ -285,6 +285,7 @@ func resetLinkerState() {
 	strnames = nil
 
 	resetDwarfState()
+	resetSymtabState()
 	registerFlags()
 }
 
