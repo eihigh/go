@@ -283,6 +283,9 @@ func resetLinkerState() {
 	covCounterDataLen = 0
 	strdata = make(map[string]string)
 	strnames = nil
+	hostobj = nil
+	hostobjcounter = 0
+	fipsinfo = 0
 
 	resetDwarfState()
 	resetSymtabState()
