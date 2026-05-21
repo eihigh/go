@@ -2693,6 +2693,34 @@ func (l *Loader) UndefinedRelocTargets(limit int) ([]Sym, []Sym) {
 	return result, fromr
 }
 
+// UndefinedRelocTargetNames scans unresolved relocation targets looking
+// for the specified symbol names.
+func (l *Loader) UndefinedRelocTargetNames(want []string) []bool {
+	l.scanUndefinedRelocTargets(-1)
+
+	rval := make([]bool, len(want))
+	wantm := make(map[string]int, len(want))
+	for k, w := range want {
+		wantm[w] = k
+	}
+	count := 0
+	seen := make(map[Sym]struct{})
+	for _, rt := range l.undefRelocTargets {
+		if _, ok := seen[rt.target]; ok || !l.isUndefinedRelocTarget(rt.target) {
+			continue
+		}
+		seen[rt.target] = struct{}{}
+		if k, ok := wantm[l.SymName(rt.target)]; ok {
+			rval[k] = true
+			count++
+			if count == len(want) {
+				return rval
+			}
+		}
+	}
+	return rval
+}
+
 func (l *Loader) scanUndefinedRelocTargets(limit int) {
 	if limit != -1 && l.countCachedUndefinedRelocTargets(limit) >= limit {
 		return
