@@ -1081,6 +1081,9 @@ func loadobjfile(ctxt *Link, lib *sym.Library) {
 	if ctxt.Debugvlog > 1 {
 		ctxt.Logf("ldobj: %s (%s)\n", lib.File, pkg)
 	}
+	if maybeLoadArchiveTemplate(ctxt, lib) {
+		return
+	}
 	f, err := bio.Open(lib.File)
 	if err != nil {
 		Exitf("cannot open file %s: %v", lib.File, err)
@@ -2435,29 +2438,7 @@ func ldobj(ctxt *Link, f *bio.Reader, lib *sym.Library, length int64, pn string,
 // symbols in 'want'. Return value is a list of bools, with list[K] set
 // to true if there is an unresolved reference to the symbol in want[K].
 func symbolsAreUnresolved(ctxt *Link, want []string) []bool {
-	returnAllUndefs := -1
-	undefs, _ := ctxt.loader.UndefinedRelocTargets(returnAllUndefs)
-	seen := make(map[loader.Sym]struct{})
-	rval := make([]bool, len(want))
-	wantm := make(map[string]int)
-	for k, w := range want {
-		wantm[w] = k
-	}
-	count := 0
-	for _, s := range undefs {
-		if _, ok := seen[s]; ok {
-			continue
-		}
-		seen[s] = struct{}{}
-		if k, ok := wantm[ctxt.loader.SymName(s)]; ok {
-			rval[k] = true
-			count++
-			if count == len(want) {
-				return rval
-			}
-		}
-	}
-	return rval
+	return ctxt.loader.UndefinedRelocTargetNames(want)
 }
 
 // hostObject reads a single host object file (compare to "hostArchive").

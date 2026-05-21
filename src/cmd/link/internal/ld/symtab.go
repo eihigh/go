@@ -848,6 +848,13 @@ var CarrierSymByType [sym.SXREF]struct {
 	Size int64
 }
 
+func resetSymtabState() {
+	CarrierSymByType = [sym.SXREF]struct {
+		Sym  loader.Sym
+		Size int64
+	}{}
+}
+
 func setCarrierSym(typ sym.SymKind, s loader.Sym) {
 	if CarrierSymByType[typ].Sym != 0 {
 		panic(fmt.Sprintf("carrier symbol for type %v already set", typ))

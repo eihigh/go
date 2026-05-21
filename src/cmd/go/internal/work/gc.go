@@ -652,6 +652,9 @@ func (gcToolchain) ld(b *Builder, root *Action, targetPath, importcfg, mainpkg s
 	} else {
 		env = append(env, "GOROOT="+cfg.GOROOT)
 	}
+	if cfg.DebugLinkServer && len(cfg.BuildToolexec) == 0 {
+		return runLinkWithServer(b.Shell(root), dir, root.Package.ImportPath, env, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags, mainpkg)
+	}
 	return b.Shell(root).run(dir, root.Package.ImportPath, env, cfg.BuildToolexec, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags, mainpkg)
 }
 
@@ -700,6 +703,9 @@ func (gcToolchain) ldShared(b *Builder, root *Action, toplevelactions []*Action,
 	// the output file path is recorded in the .gnu.version_d section.
 	dir, targetPath := filepath.Split(targetPath)
 
+	if cfg.DebugLinkServer && len(cfg.BuildToolexec) == 0 {
+		return runLinkWithServer(b.Shell(root), dir, targetPath, cfgChangedEnv, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags)
+	}
 	return b.Shell(root).run(dir, targetPath, cfgChangedEnv, cfg.BuildToolexec, base.Tool("link"), "-o", targetPath, "-importcfg", importcfg, ldflags)
 }
 

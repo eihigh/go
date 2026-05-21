@@ -159,6 +159,11 @@ type symAndSize struct {
 	size uint32
 }
 
+type undefinedRelocTarget struct {
+	target Sym
+	from   Sym
+}
+
 // A Loader loads new object files and resolves indexed symbol references.
 //
 // Notes on the layout of global symbol index space:
@@ -258,6 +263,9 @@ type Loader struct {
 	// and a BSS symbol with the same name, and the BSS symbol has
 	// larger size.
 	sizeFixups []symAndSize
+
+	undefRelocTargets   []undefinedRelocTarget
+	undefRelocScanStart Sym
 
 	flags uint32
 
@@ -2131,23 +2139,7 @@ func (l *Loader) FuncInfo(i Sym) FuncInfo {
 	return FuncInfo{}
 }
 
-// Preload a package: adds autolib.
-// Does not add defined package or non-packaged symbols to the symbol table.
-// These are done in LoadSyms.
-// Does not read symbol data.
-// Returns the fingerprint of the object.
-func (l *Loader) Preload(localSymVersion int, f *bio.Reader, lib *sym.Library, unit *sym.CompilationUnit, length int64) goobj.FingerprintType {
-	roObject, readonly, err := f.Slice(uint64(length)) // TODO: no need to map blocks that are for tools only (e.g. RefName)
-	if err != nil {
-		log.Fatal("cannot read object file:", err)
-	}
-	r := goobj.NewReaderFromBytes(roObject, readonly)
-	if r == nil {
-		if len(roObject) >= 8 && bytes.Equal(roObject[:8], []byte("\x00go114ld")) {
-			log.Fatalf("found object file %s in old format", f.File().Name())
-		}
-		panic("cannot read object file")
-	}
+func (l *Loader) preloadObjectReader(localSymVersion int, r *goobj.Reader, lib *sym.Library, unit *sym.CompilationUnit) goobj.FingerprintType {
 	pkgprefix := objabi.PathToPrefix(lib.Pkg) + "."
 	ndef := r.NSym()
 	nhashed64def := r.NHashed64def()
@@ -2180,10 +2172,36 @@ func (l *Loader) Preload(localSymVersion int, f *bio.Reader, lib *sym.Library, u
 
 	l.addObj(lib.Pkg, or)
 
-	// The caller expects us consuming all the data
-	f.MustSeek(length, io.SeekCurrent)
-
 	return r.Fingerprint()
+}
+
+// PreloadFromObjectReader attaches a pre-parsed Go object reader to the loader.
+// The supplied reader must remain valid for the lifetime of the link.
+func (l *Loader) PreloadFromObjectReader(localSymVersion int, r *goobj.Reader, lib *sym.Library, unit *sym.CompilationUnit) goobj.FingerprintType {
+	return l.preloadObjectReader(localSymVersion, r, lib, unit)
+}
+
+// Preload a package: adds autolib.
+// Does not add defined package or non-packaged symbols to the symbol table.
+// These are done in LoadSyms.
+// Does not read symbol data.
+// Returns the fingerprint of the object.
+func (l *Loader) Preload(localSymVersion int, f *bio.Reader, lib *sym.Library, unit *sym.CompilationUnit, length int64) goobj.FingerprintType {
+	roObject, readonly, err := f.Slice(uint64(length)) // TODO: no need to map blocks that are for tools only (e.g. RefName)
+	if err != nil {
+		log.Fatal("cannot read object file:", err)
+	}
+	r := goobj.NewReaderFromBytes(roObject, readonly)
+	if r == nil {
+		if len(roObject) >= 8 && bytes.Equal(roObject[:8], []byte("\x00go114ld")) {
+			log.Fatalf("found object file %s in old format", f.File().Name())
+		}
+		panic("cannot read object file")
+	}
+	fingerprint := l.preloadObjectReader(localSymVersion, r, lib, unit)
+	// The caller expects us consuming all the data.
+	f.MustSeek(length, io.SeekCurrent)
+	return fingerprint
 }
 
 // Holds the loader along with temporary states for loading symbols.
@@ -2660,23 +2678,89 @@ func (l *Loader) RelocVariant(s Sym, ri int) sym.RelocVariant {
 // param controls the maximum number of results returned; if "limit"
 // is -1, then all undefs are returned.
 func (l *Loader) UndefinedRelocTargets(limit int) ([]Sym, []Sym) {
+	l.scanUndefinedRelocTargets(limit)
+
 	result, fromr := []Sym{}, []Sym{}
-outerloop:
-	for si := Sym(1); si < Sym(len(l.objSyms)); si++ {
-		relocs := l.Relocs(si)
-		for ri := 0; ri < relocs.Count(); ri++ {
-			r := relocs.At(ri)
-			rs := r.Sym()
-			if rs != 0 && l.SymType(rs) == sym.SXREF && l.SymName(rs) != ".got" {
-				result = append(result, rs)
-				fromr = append(fromr, si)
-				if limit != -1 && len(result) >= limit {
-					break outerloop
-				}
+	for _, rt := range l.undefRelocTargets {
+		if l.isUndefinedRelocTarget(rt.target) {
+			result = append(result, rt.target)
+			fromr = append(fromr, rt.from)
+			if limit != -1 && len(result) >= limit {
+				break
 			}
 		}
 	}
 	return result, fromr
+}
+
+// UndefinedRelocTargetNames scans unresolved relocation targets looking
+// for the specified symbol names.
+func (l *Loader) UndefinedRelocTargetNames(want []string) []bool {
+	l.scanUndefinedRelocTargets(-1)
+
+	rval := make([]bool, len(want))
+	wantm := make(map[string]int, len(want))
+	for k, w := range want {
+		wantm[w] = k
+	}
+	count := 0
+	seen := make(map[Sym]struct{})
+	for _, rt := range l.undefRelocTargets {
+		if _, ok := seen[rt.target]; ok || !l.isUndefinedRelocTarget(rt.target) {
+			continue
+		}
+		seen[rt.target] = struct{}{}
+		if k, ok := wantm[l.SymName(rt.target)]; ok {
+			rval[k] = true
+			count++
+			if count == len(want) {
+				return rval
+			}
+		}
+	}
+	return rval
+}
+
+func (l *Loader) scanUndefinedRelocTargets(limit int) {
+	if limit != -1 && l.countCachedUndefinedRelocTargets(limit) >= limit {
+		return
+	}
+
+	start := l.undefRelocScanStart
+	if start == 0 {
+		start = 1
+	}
+	for si := start; si < Sym(len(l.objSyms)); si++ {
+		relocs := l.Relocs(si)
+		for ri := 0; ri < relocs.Count(); ri++ {
+			r := relocs.At(ri)
+			rs := r.Sym()
+			if l.isUndefinedRelocTarget(rs) {
+				l.undefRelocTargets = append(l.undefRelocTargets, undefinedRelocTarget{target: rs, from: si})
+			}
+		}
+		l.undefRelocScanStart = si + 1
+		if limit != -1 && l.countCachedUndefinedRelocTargets(limit) >= limit {
+			return
+		}
+	}
+}
+
+func (l *Loader) countCachedUndefinedRelocTargets(limit int) int {
+	count := 0
+	for _, rt := range l.undefRelocTargets {
+		if l.isUndefinedRelocTarget(rt.target) {
+			count++
+			if count >= limit {
+				return count
+			}
+		}
+	}
+	return count
+}
+
+func (l *Loader) isUndefinedRelocTarget(s Sym) bool {
+	return s != 0 && l.SymType(s) == sym.SXREF && l.SymName(s) != ".got"
 }
 
 // AssignTextSymbolOrder populates the Textp slices within each

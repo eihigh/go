@@ -232,6 +232,13 @@ func (d *dwctxt) writeabbrev() dwarfSecInfo {
 
 var dwtypes dwarf.DWDie
 
+func resetDwarfState() {
+	dwarfp = nil
+	dwtypes = dwarf.DWDie{}
+	prototypedies = nil
+	dwsectCUSize = nil
+}
+
 // newattr attaches a new attribute to the specified DIE.
 //
 // FIXME: at the moment attributes are stored in a linked list in a
