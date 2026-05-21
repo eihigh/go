@@ -159,6 +159,11 @@ type symAndSize struct {
 	size uint32
 }
 
+type undefinedRelocTarget struct {
+	target Sym
+	from   Sym
+}
+
 // A Loader loads new object files and resolves indexed symbol references.
 //
 // Notes on the layout of global symbol index space:
@@ -258,6 +263,9 @@ type Loader struct {
 	// and a BSS symbol with the same name, and the BSS symbol has
 	// larger size.
 	sizeFixups []symAndSize
+
+	undefRelocTargets   []undefinedRelocTarget
+	undefRelocScanStart Sym
 
 	flags uint32
 
@@ -2670,23 +2678,61 @@ func (l *Loader) RelocVariant(s Sym, ri int) sym.RelocVariant {
 // param controls the maximum number of results returned; if "limit"
 // is -1, then all undefs are returned.
 func (l *Loader) UndefinedRelocTargets(limit int) ([]Sym, []Sym) {
+	l.scanUndefinedRelocTargets(limit)
+
 	result, fromr := []Sym{}, []Sym{}
-outerloop:
-	for si := Sym(1); si < Sym(len(l.objSyms)); si++ {
-		relocs := l.Relocs(si)
-		for ri := 0; ri < relocs.Count(); ri++ {
-			r := relocs.At(ri)
-			rs := r.Sym()
-			if rs != 0 && l.SymType(rs) == sym.SXREF && l.SymName(rs) != ".got" {
-				result = append(result, rs)
-				fromr = append(fromr, si)
-				if limit != -1 && len(result) >= limit {
-					break outerloop
-				}
+	for _, rt := range l.undefRelocTargets {
+		if l.isUndefinedRelocTarget(rt.target) {
+			result = append(result, rt.target)
+			fromr = append(fromr, rt.from)
+			if limit != -1 && len(result) >= limit {
+				break
 			}
 		}
 	}
 	return result, fromr
+}
+
+func (l *Loader) scanUndefinedRelocTargets(limit int) {
+	if limit != -1 && l.countCachedUndefinedRelocTargets(limit) >= limit {
+		return
+	}
+
+	start := l.undefRelocScanStart
+	if start == 0 {
+		start = 1
+	}
+	for si := start; si < Sym(len(l.objSyms)); si++ {
+		relocs := l.Relocs(si)
+		for ri := 0; ri < relocs.Count(); ri++ {
+			r := relocs.At(ri)
+			rs := r.Sym()
+			if l.isUndefinedRelocTarget(rs) {
+				l.undefRelocTargets = append(l.undefRelocTargets, undefinedRelocTarget{target: rs, from: si})
+			}
+		}
+		l.undefRelocScanStart = si + 1
+		if limit != -1 && l.countCachedUndefinedRelocTargets(limit) >= limit {
+			return
+		}
+	}
+}
+
+func (l *Loader) countCachedUndefinedRelocTargets(limit int) int {
+	count := 0
+	for _, rt := range l.undefRelocTargets {
+		if l.isUndefinedRelocTarget(rt.target) {
+			count++
+			if count >= limit {
+				return count
+			}
+		}
+	}
+	return count
+}
+
+func (l *Loader) isUndefinedRelocTarget(s Sym) bool {
+	return s != 0 && l.SymType(s) == sym.SXREF && l.SymName(s) != ".got"
 }
 
 // AssignTextSymbolOrder populates the Textp slices within each
